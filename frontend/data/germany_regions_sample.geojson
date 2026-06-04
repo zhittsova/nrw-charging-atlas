@@ -1,0 +1,1926 @@
+{
+  "type": "FeatureCollection",
+  "name": "germany_energy_regions_sample",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-berlin",
+        "name": "Berlin",
+        "state": "Berlin",
+        "population": 3769000,
+        "areaKm2": 891,
+        "box": [
+          13.08,
+          52.35,
+          13.76,
+          52.68
+        ],
+        "supply": 7.2,
+        "grid": 84,
+        "road": 88,
+        "renewable": 44,
+        "demand": 92,
+        "stationCount": 1250,
+        "chargerDensity": 3.32,
+        "chargersPerKm2": 1.403,
+        "populationDensity": 4230.0785634118965,
+        "averageDistanceKm": 7.2,
+        "substationCount": 5,
+        "substationDensity": 5.61,
+        "demandScore": 95.6,
+        "evReadinessScore": 63.2,
+        "gridReadinessScore": 80.8,
+        "chargerDeficitScore": 69.1,
+        "investmentPriorityScore": 83.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              13.08,
+              52.35
+            ],
+            [
+              13.76,
+              52.35
+            ],
+            [
+              13.76,
+              52.68
+            ],
+            [
+              13.08,
+              52.68
+            ],
+            [
+              13.08,
+              52.35
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-hamburg",
+        "name": "Hamburg",
+        "state": "Hamburg",
+        "population": 1899000,
+        "areaKm2": 755,
+        "box": [
+          9.7,
+          53.39,
+          10.33,
+          53.74
+        ],
+        "supply": 6.8,
+        "grid": 82,
+        "road": 86,
+        "renewable": 50,
+        "demand": 86,
+        "stationCount": 1250,
+        "chargerDensity": 6.58,
+        "chargersPerKm2": 1.656,
+        "populationDensity": 2515.2317880794703,
+        "averageDistanceKm": 6.5,
+        "substationCount": 3,
+        "substationDensity": 3.97,
+        "demandScore": 73.7,
+        "evReadinessScore": 96.6,
+        "gridReadinessScore": 71.0,
+        "chargerDeficitScore": 42.1,
+        "investmentPriorityScore": 64.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              9.7,
+              53.39
+            ],
+            [
+              10.33,
+              53.39
+            ],
+            [
+              10.33,
+              53.74
+            ],
+            [
+              9.7,
+              53.74
+            ],
+            [
+              9.7,
+              53.39
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-munich",
+        "name": "Munich Region",
+        "state": "Bavaria",
+        "population": 2980000,
+        "areaKm2": 5500,
+        "box": [
+          11.05,
+          47.82,
+          12.05,
+          48.45
+        ],
+        "supply": 8.4,
+        "grid": 79,
+        "road": 85,
+        "renewable": 68,
+        "demand": 91,
+        "stationCount": 1250,
+        "chargerDensity": 4.19,
+        "chargersPerKm2": 0.227,
+        "populationDensity": 541.8181818181819,
+        "averageDistanceKm": 18,
+        "substationCount": 8,
+        "substationDensity": 1.45,
+        "demandScore": 55.1,
+        "evReadinessScore": 20.6,
+        "gridReadinessScore": 57.6,
+        "chargerDeficitScore": 66.0,
+        "investmentPriorityScore": 61.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              11.05,
+              47.82
+            ],
+            [
+              12.05,
+              47.82
+            ],
+            [
+              12.05,
+              48.45
+            ],
+            [
+              11.05,
+              48.45
+            ],
+            [
+              11.05,
+              47.82
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-cologne",
+        "name": "Cologne-Bonn Region",
+        "state": "North Rhine-Westphalia",
+        "population": 3560000,
+        "areaKm2": 7300,
+        "box": [
+          6.55,
+          50.55,
+          7.45,
+          51.15
+        ],
+        "supply": 5.2,
+        "grid": 76,
+        "road": 90,
+        "renewable": 42,
+        "demand": 89,
+        "stationCount": 1250,
+        "chargerDensity": 3.51,
+        "chargersPerKm2": 0.171,
+        "populationDensity": 487.67123287671234,
+        "averageDistanceKm": 18,
+        "substationCount": 10,
+        "substationDensity": 1.37,
+        "demandScore": 53.4,
+        "evReadinessScore": 14.0,
+        "gridReadinessScore": 50.4,
+        "chargerDeficitScore": 68.1,
+        "investmentPriorityScore": 60.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              6.55,
+              50.55
+            ],
+            [
+              7.45,
+              50.55
+            ],
+            [
+              7.45,
+              51.15
+            ],
+            [
+              6.55,
+              51.15
+            ],
+            [
+              6.55,
+              50.55
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-frankfurt",
+        "name": "Frankfurt Rhine-Main",
+        "state": "Hesse",
+        "population": 5810000,
+        "areaKm2": 14800,
+        "box": [
+          7.85,
+          49.65,
+          9.15,
+          50.45
+        ],
+        "supply": 6.1,
+        "grid": 86,
+        "road": 92,
+        "renewable": 47,
+        "demand": 94,
+        "stationCount": 1250,
+        "chargerDensity": 2.15,
+        "chargersPerKm2": 0.084,
+        "populationDensity": 392.56756756756755,
+        "averageDistanceKm": 18,
+        "substationCount": 21,
+        "substationDensity": 1.42,
+        "demandScore": 55.1,
+        "evReadinessScore": 1.2,
+        "gridReadinessScore": 56.7,
+        "chargerDeficitScore": 74.8,
+        "investmentPriorityScore": 65.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              7.85,
+              49.65
+            ],
+            [
+              9.15,
+              49.65
+            ],
+            [
+              9.15,
+              50.45
+            ],
+            [
+              7.85,
+              50.45
+            ],
+            [
+              7.85,
+              49.65
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-stuttgart",
+        "name": "Stuttgart Region",
+        "state": "Baden-Wurttemberg",
+        "population": 2800000,
+        "areaKm2": 3650,
+        "box": [
+          8.75,
+          48.45,
+          9.65,
+          49.05
+        ],
+        "supply": 7.8,
+        "grid": 81,
+        "road": 87,
+        "renewable": 58,
+        "demand": 88,
+        "stationCount": 1250,
+        "chargerDensity": 4.46,
+        "chargersPerKm2": 0.342,
+        "populationDensity": 767.1232876712329,
+        "averageDistanceKm": 15.9,
+        "substationCount": 7,
+        "substationDensity": 1.92,
+        "demandScore": 55.9,
+        "evReadinessScore": 30.6,
+        "gridReadinessScore": 59.5,
+        "chargerDeficitScore": 62.0,
+        "investmentPriorityScore": 61.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              8.75,
+              48.45
+            ],
+            [
+              9.65,
+              48.45
+            ],
+            [
+              9.65,
+              49.05
+            ],
+            [
+              8.75,
+              49.05
+            ],
+            [
+              8.75,
+              48.45
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-ruhr",
+        "name": "Ruhr Area",
+        "state": "North Rhine-Westphalia",
+        "population": 5100000,
+        "areaKm2": 4435,
+        "box": [
+          6.55,
+          51.18,
+          7.65,
+          51.75
+        ],
+        "supply": 4.7,
+        "grid": 83,
+        "road": 91,
+        "renewable": 38,
+        "demand": 95,
+        "stationCount": 1250,
+        "chargerDensity": 2.45,
+        "chargersPerKm2": 0.282,
+        "populationDensity": 1149.943630214205,
+        "averageDistanceKm": 17.4,
+        "substationCount": 10,
+        "substationDensity": 2.25,
+        "demandScore": 63.9,
+        "evReadinessScore": 8.9,
+        "gridReadinessScore": 58.5,
+        "chargerDeficitScore": 76.1,
+        "investmentPriorityScore": 69.2
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              6.55,
+              51.18
+            ],
+            [
+              7.65,
+              51.18
+            ],
+            [
+              7.65,
+              51.75
+            ],
+            [
+              6.55,
+              51.75
+            ],
+            [
+              6.55,
+              51.18
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-duesseldorf",
+        "name": "Dusseldorf-Lower Rhine",
+        "state": "North Rhine-Westphalia",
+        "population": 2260000,
+        "areaKm2": 5300,
+        "box": [
+          6.2,
+          51.0,
+          6.95,
+          51.55
+        ],
+        "supply": 5.8,
+        "grid": 80,
+        "road": 88,
+        "renewable": 40,
+        "demand": 84,
+        "stationCount": 1250,
+        "chargerDensity": 5.53,
+        "chargersPerKm2": 0.236,
+        "populationDensity": 426.41509433962267,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 1.32,
+        "demandScore": 50.0,
+        "evReadinessScore": 31.8,
+        "gridReadinessScore": 51.7,
+        "chargerDeficitScore": 58.2,
+        "investmentPriorityScore": 56.6
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              6.2,
+              51.0
+            ],
+            [
+              6.95,
+              51.0
+            ],
+            [
+              6.95,
+              51.55
+            ],
+            [
+              6.2,
+              51.55
+            ],
+            [
+              6.2,
+              51.0
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-hannover",
+        "name": "Hannover Region",
+        "state": "Lower Saxony",
+        "population": 1160000,
+        "areaKm2": 2290,
+        "box": [
+          9.4,
+          52.15,
+          10.05,
+          52.6
+        ],
+        "supply": 5.4,
+        "grid": 74,
+        "road": 77,
+        "renewable": 63,
+        "demand": 70,
+        "stationCount": 626,
+        "chargerDensity": 5.4,
+        "chargersPerKm2": 0.273,
+        "populationDensity": 506.55021834061137,
+        "averageDistanceKm": 17.9,
+        "substationCount": 3,
+        "substationDensity": 1.31,
+        "demandScore": 43.2,
+        "evReadinessScore": 31.6,
+        "gridReadinessScore": 53.2,
+        "chargerDeficitScore": 54.5,
+        "investmentPriorityScore": 52.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              9.4,
+              52.15
+            ],
+            [
+              10.05,
+              52.15
+            ],
+            [
+              10.05,
+              52.6
+            ],
+            [
+              9.4,
+              52.6
+            ],
+            [
+              9.4,
+              52.15
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-bremen",
+        "name": "Bremen-Oldenburg",
+        "state": "Bremen / Lower Saxony",
+        "population": 1760000,
+        "areaKm2": 7500,
+        "box": [
+          8.3,
+          52.85,
+          9.15,
+          53.45
+        ],
+        "supply": 4.2,
+        "grid": 70,
+        "road": 75,
+        "renewable": 72,
+        "demand": 73,
+        "stationCount": 739,
+        "chargerDensity": 4.2,
+        "chargersPerKm2": 0.099,
+        "populationDensity": 234.66666666666666,
+        "averageDistanceKm": 18,
+        "substationCount": 8,
+        "substationDensity": 1.07,
+        "demandScore": 41.9,
+        "evReadinessScore": 18.3,
+        "gridReadinessScore": 51.6,
+        "chargerDeficitScore": 59.8,
+        "investmentPriorityScore": 52.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              8.3,
+              52.85
+            ],
+            [
+              9.15,
+              52.85
+            ],
+            [
+              9.15,
+              53.45
+            ],
+            [
+              8.3,
+              53.45
+            ],
+            [
+              8.3,
+              52.85
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-leipzig",
+        "name": "Leipzig Region",
+        "state": "Saxony",
+        "population": 1050000,
+        "areaKm2": 3900,
+        "box": [
+          11.85,
+          51.05,
+          12.75,
+          51.55
+        ],
+        "supply": 4.8,
+        "grid": 69,
+        "road": 76,
+        "renewable": 59,
+        "demand": 68,
+        "stationCount": 504,
+        "chargerDensity": 4.8,
+        "chargersPerKm2": 0.129,
+        "populationDensity": 269.2307692307692,
+        "averageDistanceKm": 18,
+        "substationCount": 4,
+        "substationDensity": 1.03,
+        "demandScore": 39.5,
+        "evReadinessScore": 23.8,
+        "gridReadinessScore": 48.2,
+        "chargerDeficitScore": 56.0,
+        "investmentPriorityScore": 49.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              11.85,
+              51.05
+            ],
+            [
+              12.75,
+              51.05
+            ],
+            [
+              12.75,
+              51.55
+            ],
+            [
+              11.85,
+              51.55
+            ],
+            [
+              11.85,
+              51.05
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-dresden",
+        "name": "Dresden Region",
+        "state": "Saxony",
+        "population": 1340000,
+        "areaKm2": 6200,
+        "box": [
+          12.8,
+          50.75,
+          14.1,
+          51.25
+        ],
+        "supply": 5.0,
+        "grid": 71,
+        "road": 72,
+        "renewable": 55,
+        "demand": 66,
+        "stationCount": 670,
+        "chargerDensity": 5.0,
+        "chargersPerKm2": 0.108,
+        "populationDensity": 216.1290322580645,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 1.13,
+        "demandScore": 37.8,
+        "evReadinessScore": 25.1,
+        "gridReadinessScore": 49.0,
+        "chargerDeficitScore": 54.5,
+        "investmentPriorityScore": 48.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              12.8,
+              50.75
+            ],
+            [
+              14.1,
+              50.75
+            ],
+            [
+              14.1,
+              51.25
+            ],
+            [
+              12.8,
+              51.25
+            ],
+            [
+              12.8,
+              50.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-nuremberg",
+        "name": "Nuremberg Region",
+        "state": "Bavaria",
+        "population": 1360000,
+        "areaKm2": 7600,
+        "box": [
+          10.65,
+          49.1,
+          11.45,
+          49.75
+        ],
+        "supply": 6.4,
+        "grid": 74,
+        "road": 80,
+        "renewable": 66,
+        "demand": 72,
+        "stationCount": 870,
+        "chargerDensity": 6.4,
+        "chargersPerKm2": 0.114,
+        "populationDensity": 178.94736842105263,
+        "averageDistanceKm": 18,
+        "substationCount": 8,
+        "substationDensity": 1.05,
+        "demandScore": 40.7,
+        "evReadinessScore": 36.7,
+        "gridReadinessScore": 52.3,
+        "chargerDeficitScore": 50.9,
+        "investmentPriorityScore": 50.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10.65,
+              49.1
+            ],
+            [
+              11.45,
+              49.1
+            ],
+            [
+              11.45,
+              49.75
+            ],
+            [
+              10.65,
+              49.75
+            ],
+            [
+              10.65,
+              49.1
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-karlsruhe",
+        "name": "Karlsruhe Technology Region",
+        "state": "Baden-Wurttemberg",
+        "population": 1250000,
+        "areaKm2": 3500,
+        "box": [
+          8.05,
+          48.75,
+          8.75,
+          49.3
+        ],
+        "supply": 7.0,
+        "grid": 77,
+        "road": 82,
+        "renewable": 57,
+        "demand": 76,
+        "stationCount": 875,
+        "chargerDensity": 7.0,
+        "chargersPerKm2": 0.25,
+        "populationDensity": 357.14285714285717,
+        "averageDistanceKm": 18,
+        "substationCount": 5,
+        "substationDensity": 1.43,
+        "demandScore": 44.9,
+        "evReadinessScore": 44.2,
+        "gridReadinessScore": 54.3,
+        "chargerDeficitScore": 49.8,
+        "investmentPriorityScore": 51.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              8.05,
+              48.75
+            ],
+            [
+              8.75,
+              48.75
+            ],
+            [
+              8.75,
+              49.3
+            ],
+            [
+              8.05,
+              49.3
+            ],
+            [
+              8.05,
+              48.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-mannheim",
+        "name": "Rhine-Neckar",
+        "state": "Baden-Wurttemberg / Hesse",
+        "population": 2400000,
+        "areaKm2": 5600,
+        "box": [
+          8.15,
+          49.25,
+          9.0,
+          49.8
+        ],
+        "supply": 5.7,
+        "grid": 78,
+        "road": 83,
+        "renewable": 48,
+        "demand": 80,
+        "stationCount": 1250,
+        "chargerDensity": 5.21,
+        "chargersPerKm2": 0.223,
+        "populationDensity": 428.57142857142856,
+        "averageDistanceKm": 18,
+        "substationCount": 8,
+        "substationDensity": 1.43,
+        "demandScore": 47.8,
+        "evReadinessScore": 28.9,
+        "gridReadinessScore": 53.0,
+        "chargerDeficitScore": 58.3,
+        "investmentPriorityScore": 55.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              8.15,
+              49.25
+            ],
+            [
+              9.0,
+              49.25
+            ],
+            [
+              9.0,
+              49.8
+            ],
+            [
+              8.15,
+              49.8
+            ],
+            [
+              8.15,
+              49.25
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-freiburg",
+        "name": "Freiburg-South Baden",
+        "state": "Baden-Wurttemberg",
+        "population": 1150000,
+        "areaKm2": 6800,
+        "box": [
+          7.45,
+          47.62,
+          8.35,
+          48.25
+        ],
+        "supply": 6.6,
+        "grid": 67,
+        "road": 68,
+        "renewable": 82,
+        "demand": 62,
+        "stationCount": 759,
+        "chargerDensity": 6.6,
+        "chargersPerKm2": 0.112,
+        "populationDensity": 169.11764705882354,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 1.03,
+        "demandScore": 35.1,
+        "evReadinessScore": 38.4,
+        "gridReadinessScore": 51.8,
+        "chargerDeficitScore": 47.1,
+        "investmentPriorityScore": 45.3
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              7.45,
+              47.62
+            ],
+            [
+              8.35,
+              47.62
+            ],
+            [
+              8.35,
+              48.25
+            ],
+            [
+              7.45,
+              48.25
+            ],
+            [
+              7.45,
+              47.62
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-saarbruecken",
+        "name": "Saarland Region",
+        "state": "Saarland",
+        "population": 990000,
+        "areaKm2": 2570,
+        "box": [
+          6.35,
+          49.05,
+          7.25,
+          49.65
+        ],
+        "supply": 4.0,
+        "grid": 73,
+        "road": 74,
+        "renewable": 41,
+        "demand": 58,
+        "stationCount": 396,
+        "chargerDensity": 4.0,
+        "chargersPerKm2": 0.154,
+        "populationDensity": 385.2140077821012,
+        "averageDistanceKm": 18,
+        "substationCount": 3,
+        "substationDensity": 1.17,
+        "demandScore": 35.3,
+        "evReadinessScore": 17.7,
+        "gridReadinessScore": 47.5,
+        "chargerDeficitScore": 56.4,
+        "investmentPriorityScore": 47.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              6.35,
+              49.05
+            ],
+            [
+              7.25,
+              49.05
+            ],
+            [
+              7.25,
+              49.65
+            ],
+            [
+              6.35,
+              49.65
+            ],
+            [
+              6.35,
+              49.05
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-mainz",
+        "name": "Mainz-Wiesbaden",
+        "state": "Rhineland-Palatinate / Hesse",
+        "population": 1020000,
+        "areaKm2": 2600,
+        "box": [
+          7.8,
+          49.85,
+          8.55,
+          50.25
+        ],
+        "supply": 5.9,
+        "grid": 75,
+        "road": 81,
+        "renewable": 49,
+        "demand": 70,
+        "stationCount": 602,
+        "chargerDensity": 5.9,
+        "chargersPerKm2": 0.232,
+        "populationDensity": 392.3076923076923,
+        "averageDistanceKm": 18,
+        "substationCount": 3,
+        "substationDensity": 1.15,
+        "demandScore": 41.9,
+        "evReadinessScore": 34.8,
+        "gridReadinessScore": 50.0,
+        "chargerDeficitScore": 52.4,
+        "investmentPriorityScore": 50.6
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              7.8,
+              49.85
+            ],
+            [
+              8.55,
+              49.85
+            ],
+            [
+              8.55,
+              50.25
+            ],
+            [
+              7.8,
+              50.25
+            ],
+            [
+              7.8,
+              49.85
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-muenster",
+        "name": "Muensterland",
+        "state": "North Rhine-Westphalia",
+        "population": 1640000,
+        "areaKm2": 5940,
+        "box": [
+          7.25,
+          51.75,
+          8.25,
+          52.35
+        ],
+        "supply": 5.1,
+        "grid": 72,
+        "road": 76,
+        "renewable": 70,
+        "demand": 64,
+        "stationCount": 836,
+        "chargerDensity": 5.1,
+        "chargersPerKm2": 0.141,
+        "populationDensity": 276.0942760942761,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 1.18,
+        "demandScore": 37.4,
+        "evReadinessScore": 26.5,
+        "gridReadinessScore": 52.8,
+        "chargerDeficitScore": 53.6,
+        "investmentPriorityScore": 49.2
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              7.25,
+              51.75
+            ],
+            [
+              8.25,
+              51.75
+            ],
+            [
+              8.25,
+              52.35
+            ],
+            [
+              7.25,
+              52.35
+            ],
+            [
+              7.25,
+              51.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-bielefeld",
+        "name": "Ostwestfalen-Lippe",
+        "state": "North Rhine-Westphalia",
+        "population": 2060000,
+        "areaKm2": 6500,
+        "box": [
+          8.15,
+          51.7,
+          9.35,
+          52.35
+        ],
+        "supply": 4.6,
+        "grid": 68,
+        "road": 74,
+        "renewable": 65,
+        "demand": 67,
+        "stationCount": 948,
+        "chargerDensity": 4.6,
+        "chargersPerKm2": 0.146,
+        "populationDensity": 316.9230769230769,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 1.08,
+        "demandScore": 39.5,
+        "evReadinessScore": 22.5,
+        "gridReadinessScore": 49.2,
+        "chargerDeficitScore": 56.6,
+        "investmentPriorityScore": 50.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              8.15,
+              51.7
+            ],
+            [
+              9.35,
+              51.7
+            ],
+            [
+              9.35,
+              52.35
+            ],
+            [
+              8.15,
+              52.35
+            ],
+            [
+              8.15,
+              51.7
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-kassel",
+        "name": "North Hesse",
+        "state": "Hesse",
+        "population": 1010000,
+        "areaKm2": 8300,
+        "box": [
+          8.65,
+          50.85,
+          10.25,
+          51.55
+        ],
+        "supply": 3.7,
+        "grid": 64,
+        "road": 70,
+        "renewable": 67,
+        "demand": 55,
+        "stationCount": 374,
+        "chargerDensity": 3.7,
+        "chargersPerKm2": 0.045,
+        "populationDensity": 121.6867469879518,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 0.84,
+        "demandScore": 30.8,
+        "evReadinessScore": 13.2,
+        "gridReadinessScore": 46.2,
+        "chargerDeficitScore": 56.0,
+        "investmentPriorityScore": 45.3
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              8.65,
+              50.85
+            ],
+            [
+              10.25,
+              50.85
+            ],
+            [
+              10.25,
+              51.55
+            ],
+            [
+              8.65,
+              51.55
+            ],
+            [
+              8.65,
+              50.85
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-erfurt",
+        "name": "Thuringia Central",
+        "state": "Thuringia",
+        "population": 1080000,
+        "areaKm2": 7200,
+        "box": [
+          10.45,
+          50.55,
+          11.75,
+          51.2
+        ],
+        "supply": 3.8,
+        "grid": 63,
+        "road": 69,
+        "renewable": 62,
+        "demand": 54,
+        "stationCount": 410,
+        "chargerDensity": 3.8,
+        "chargersPerKm2": 0.057,
+        "populationDensity": 150.0,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 0.97,
+        "demandScore": 30.5,
+        "evReadinessScore": 14.2,
+        "gridReadinessScore": 45.5,
+        "chargerDeficitScore": 55.4,
+        "investmentPriorityScore": 44.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10.45,
+              50.55
+            ],
+            [
+              11.75,
+              50.55
+            ],
+            [
+              11.75,
+              51.2
+            ],
+            [
+              10.45,
+              51.2
+            ],
+            [
+              10.45,
+              50.55
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-magdeburg",
+        "name": "Magdeburg-Borde",
+        "state": "Saxony-Anhalt",
+        "population": 780000,
+        "areaKm2": 6400,
+        "box": [
+          10.75,
+          51.85,
+          12.3,
+          52.45
+        ],
+        "supply": 3.4,
+        "grid": 66,
+        "road": 67,
+        "renewable": 78,
+        "demand": 48,
+        "stationCount": 265,
+        "chargerDensity": 3.4,
+        "chargersPerKm2": 0.041,
+        "populationDensity": 121.875,
+        "averageDistanceKm": 18,
+        "substationCount": 6,
+        "substationDensity": 0.94,
+        "demandScore": 26.9,
+        "evReadinessScore": 10.7,
+        "gridReadinessScore": 50.0,
+        "chargerDeficitScore": 55.0,
+        "investmentPriorityScore": 44.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10.75,
+              51.85
+            ],
+            [
+              12.3,
+              51.85
+            ],
+            [
+              12.3,
+              52.45
+            ],
+            [
+              10.75,
+              52.45
+            ],
+            [
+              10.75,
+              51.85
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-rostock",
+        "name": "Rostock Coast",
+        "state": "Mecklenburg-Vorpommern",
+        "population": 650000,
+        "areaKm2": 7100,
+        "box": [
+          11.65,
+          53.75,
+          12.75,
+          54.35
+        ],
+        "supply": 3.2,
+        "grid": 61,
+        "road": 58,
+        "renewable": 84,
+        "demand": 44,
+        "stationCount": 208,
+        "chargerDensity": 3.2,
+        "chargersPerKm2": 0.029,
+        "populationDensity": 91.54929577464789,
+        "averageDistanceKm": 18,
+        "substationCount": 6,
+        "substationDensity": 0.85,
+        "demandScore": 24.4,
+        "evReadinessScore": 8.8,
+        "gridReadinessScore": 48.1,
+        "chargerDeficitScore": 54.5,
+        "investmentPriorityScore": 41.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              11.65,
+              53.75
+            ],
+            [
+              12.75,
+              53.75
+            ],
+            [
+              12.75,
+              54.35
+            ],
+            [
+              11.65,
+              54.35
+            ],
+            [
+              11.65,
+              53.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-kiel",
+        "name": "Kiel-Schleswig",
+        "state": "Schleswig-Holstein",
+        "population": 970000,
+        "areaKm2": 7800,
+        "box": [
+          9.55,
+          53.95,
+          10.7,
+          54.65
+        ],
+        "supply": 4.5,
+        "grid": 65,
+        "road": 63,
+        "renewable": 88,
+        "demand": 52,
+        "stationCount": 436,
+        "chargerDensity": 4.49,
+        "chargersPerKm2": 0.056,
+        "populationDensity": 124.35897435897436,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 0.9,
+        "demandScore": 29.1,
+        "evReadinessScore": 20.0,
+        "gridReadinessScore": 51.2,
+        "chargerDeficitScore": 52.0,
+        "investmentPriorityScore": 43.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              9.55,
+              53.95
+            ],
+            [
+              10.7,
+              53.95
+            ],
+            [
+              10.7,
+              54.65
+            ],
+            [
+              9.55,
+              54.65
+            ],
+            [
+              9.55,
+              53.95
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-schwerin",
+        "name": "West Mecklenburg",
+        "state": "Mecklenburg-Vorpommern",
+        "population": 520000,
+        "areaKm2": 7000,
+        "box": [
+          10.65,
+          53.15,
+          11.95,
+          53.85
+        ],
+        "supply": 2.8,
+        "grid": 58,
+        "road": 55,
+        "renewable": 82,
+        "demand": 38,
+        "stationCount": 146,
+        "chargerDensity": 2.81,
+        "chargersPerKm2": 0.021,
+        "populationDensity": 74.28571428571429,
+        "averageDistanceKm": 18,
+        "substationCount": 5,
+        "substationDensity": 0.71,
+        "demandScore": 20.9,
+        "evReadinessScore": 5.4,
+        "gridReadinessScore": 45.4,
+        "chargerDeficitScore": 54.1,
+        "investmentPriorityScore": 39.2
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10.65,
+              53.15
+            ],
+            [
+              11.95,
+              53.15
+            ],
+            [
+              11.95,
+              53.85
+            ],
+            [
+              10.65,
+              53.85
+            ],
+            [
+              10.65,
+              53.15
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-potsdam",
+        "name": "Potsdam-Havelland",
+        "state": "Brandenburg",
+        "population": 760000,
+        "areaKm2": 6200,
+        "box": [
+          12.55,
+          52.2,
+          13.25,
+          52.65
+        ],
+        "supply": 4.1,
+        "grid": 68,
+        "road": 66,
+        "renewable": 74,
+        "demand": 57,
+        "stationCount": 312,
+        "chargerDensity": 4.11,
+        "chargersPerKm2": 0.05,
+        "populationDensity": 122.58064516129032,
+        "averageDistanceKm": 18,
+        "substationCount": 6,
+        "substationDensity": 0.97,
+        "demandScore": 31.9,
+        "evReadinessScore": 16.7,
+        "gridReadinessScore": 50.4,
+        "chargerDeficitScore": 55.0,
+        "investmentPriorityScore": 45.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              12.55,
+              52.2
+            ],
+            [
+              13.25,
+              52.2
+            ],
+            [
+              13.25,
+              52.65
+            ],
+            [
+              12.55,
+              52.65
+            ],
+            [
+              12.55,
+              52.2
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-augsburg",
+        "name": "Augsburg-Swabia",
+        "state": "Bavaria",
+        "population": 1010000,
+        "areaKm2": 5200,
+        "box": [
+          10.45,
+          47.95,
+          11.1,
+          48.55
+        ],
+        "supply": 5.3,
+        "grid": 70,
+        "road": 75,
+        "renewable": 73,
+        "demand": 65,
+        "stationCount": 535,
+        "chargerDensity": 5.3,
+        "chargersPerKm2": 0.103,
+        "populationDensity": 194.23076923076923,
+        "averageDistanceKm": 18,
+        "substationCount": 5,
+        "substationDensity": 0.96,
+        "demandScore": 37.0,
+        "evReadinessScore": 27.5,
+        "gridReadinessScore": 51.1,
+        "chargerDeficitScore": 53.0,
+        "investmentPriorityScore": 48.4
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10.45,
+              47.95
+            ],
+            [
+              11.1,
+              47.95
+            ],
+            [
+              11.1,
+              48.55
+            ],
+            [
+              10.45,
+              48.55
+            ],
+            [
+              10.45,
+              47.95
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-regensburg",
+        "name": "Regensburg-Upper Palatinate",
+        "state": "Bavaria",
+        "population": 850000,
+        "areaKm2": 7200,
+        "box": [
+          11.75,
+          48.75,
+          12.65,
+          49.35
+        ],
+        "supply": 4.9,
+        "grid": 69,
+        "road": 72,
+        "renewable": 77,
+        "demand": 57,
+        "stationCount": 417,
+        "chargerDensity": 4.91,
+        "chargersPerKm2": 0.058,
+        "populationDensity": 118.05555555555556,
+        "averageDistanceKm": 18,
+        "substationCount": 7,
+        "substationDensity": 0.97,
+        "demandScore": 31.8,
+        "evReadinessScore": 23.4,
+        "gridReadinessScore": 51.5,
+        "chargerDeficitScore": 52.0,
+        "investmentPriorityScore": 45.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              11.75,
+              48.75
+            ],
+            [
+              12.65,
+              48.75
+            ],
+            [
+              12.65,
+              49.35
+            ],
+            [
+              11.75,
+              49.35
+            ],
+            [
+              11.75,
+              48.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-wuerzburg",
+        "name": "Wuerzburg-Franconia",
+        "state": "Bavaria",
+        "population": 920000,
+        "areaKm2": 6800,
+        "box": [
+          9.45,
+          49.55,
+          10.3,
+          50.1
+        ],
+        "supply": 4.6,
+        "grid": 67,
+        "road": 73,
+        "renewable": 69,
+        "demand": 56,
+        "stationCount": 423,
+        "chargerDensity": 4.6,
+        "chargersPerKm2": 0.062,
+        "populationDensity": 135.2941176470588,
+        "averageDistanceKm": 18,
+        "substationCount": 6,
+        "substationDensity": 0.88,
+        "demandScore": 31.5,
+        "evReadinessScore": 20.9,
+        "gridReadinessScore": 48.3,
+        "chargerDeficitScore": 52.9,
+        "investmentPriorityScore": 45.4
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              9.45,
+              49.55
+            ],
+            [
+              10.3,
+              49.55
+            ],
+            [
+              10.3,
+              50.1
+            ],
+            [
+              9.45,
+              50.1
+            ],
+            [
+              9.45,
+              49.55
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-trier",
+        "name": "Trier-Mosel",
+        "state": "Rhineland-Palatinate",
+        "population": 630000,
+        "areaKm2": 5100,
+        "box": [
+          6.35,
+          49.45,
+          7.2,
+          50.05
+        ],
+        "supply": 3.3,
+        "grid": 60,
+        "road": 59,
+        "renewable": 60,
+        "demand": 42,
+        "stationCount": 208,
+        "chargerDensity": 3.3,
+        "chargersPerKm2": 0.041,
+        "populationDensity": 123.52941176470588,
+        "averageDistanceKm": 18,
+        "substationCount": 4,
+        "substationDensity": 0.78,
+        "demandScore": 23.6,
+        "evReadinessScore": 9.9,
+        "gridReadinessScore": 42.4,
+        "chargerDeficitScore": 53.6,
+        "investmentPriorityScore": 39.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              6.35,
+              49.45
+            ],
+            [
+              7.2,
+              49.45
+            ],
+            [
+              7.2,
+              50.05
+            ],
+            [
+              6.35,
+              50.05
+            ],
+            [
+              6.35,
+              49.45
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "de-cottbus",
+        "name": "Lausitz-Cottbus",
+        "state": "Brandenburg / Saxony",
+        "population": 700000,
+        "areaKm2": 7800,
+        "box": [
+          13.85,
+          51.25,
+          14.75,
+          51.95
+        ],
+        "supply": 2.9,
+        "grid": 62,
+        "road": 60,
+        "renewable": 76,
+        "demand": 43,
+        "stationCount": 203,
+        "chargerDensity": 2.9,
+        "chargersPerKm2": 0.026,
+        "populationDensity": 89.74358974358974,
+        "averageDistanceKm": 18,
+        "substationCount": 6,
+        "substationDensity": 0.77,
+        "demandScore": 23.8,
+        "evReadinessScore": 6.3,
+        "gridReadinessScore": 46.5,
+        "chargerDeficitScore": 55.3,
+        "investmentPriorityScore": 41.4
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              13.85,
+              51.25
+            ],
+            [
+              14.75,
+              51.25
+            ],
+            [
+              14.75,
+              51.95
+            ],
+            [
+              13.85,
+              51.95
+            ],
+            [
+              13.85,
+              51.25
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
