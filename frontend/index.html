@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Germany Energy Infrastructure Intelligence Platform</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">GeoNode in Practice</p>
+        <h1>Germany Energy Infrastructure Intelligence Platform</h1>
+      </div>
+      <div class="header-status">
+        <span class="status-dot"></span>
+        Dockerized Leaflet MVP
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <aside class="sidebar" aria-label="Datasets, filters, and metadata">
+        <section class="panel">
+          <h2>Datasets</h2>
+          <div id="dataset-list" class="dataset-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Analysis Mode</h2>
+          <label class="field-label" for="score-mode">Choropleth score</label>
+          <select id="score-mode" class="select-input">
+            <option value="investmentPriorityScore">Investment Priority Score</option>
+            <option value="evReadinessScore">EV Readiness Score</option>
+            <option value="gridReadinessScore">Grid Readiness Score</option>
+            <option value="chargerDeficitScore">Charger Deficit Score</option>
+          </select>
+        </section>
+
+        <section class="panel metadata-panel">
+          <h2>Metadata</h2>
+          <div id="metadata-content"></div>
+        </section>
+      </aside>
+
+      <section class="workspace" aria-label="Map and indicators">
+        <section class="kpi-grid" aria-label="Key indicators">
+          <article class="kpi-card">
+            <span>Total stations</span>
+            <strong id="kpi-total-stations">-</strong>
+          </article>
+          <article class="kpi-card">
+            <span>Average density</span>
+            <strong id="kpi-average-density">-</strong>
+          </article>
+          <article class="kpi-card">
+            <span>Best prepared</span>
+            <strong id="kpi-best-region">-</strong>
+          </article>
+          <article class="kpi-card">
+            <span>Most underserved</span>
+            <strong id="kpi-underserved-region">-</strong>
+          </article>
+          <article class="kpi-card">
+            <span>Highest priority</span>
+            <strong id="kpi-priority-region">-</strong>
+          </article>
+        </section>
+
+        <section class="insight-layout">
+          <section class="map-shell">
+          <div id="map" aria-label="Leaflet map of Germany energy infrastructure intelligence"></div>
+          <div class="map-note">
+            Synthetic MVP data for spatial analytics demonstration. Replace local GeoJSON with GeoServer WMS/WFS layers in the full GeoNode stack.
+          </div>
+          </section>
+
+          <aside class="analytics-panel" aria-label="Region analytics">
+            <section class="panel region-panel">
+              <h2>Region Detail</h2>
+              <div id="region-detail" class="region-detail"></div>
+            </section>
+
+            <section class="panel rankings-panel">
+              <h2>Analytics Rankings</h2>
+              <div class="ranking-tabs" role="tablist" aria-label="Ranking type">
+                <button class="ranking-tab active" type="button" data-ranking="investmentPriorityScore">Priority</button>
+                <button class="ranking-tab" type="button" data-ranking="evReadinessScore">EV Ready</button>
+                <button class="ranking-tab" type="button" data-ranking="chargerDeficitScore">Underserved</button>
+                <button class="ranking-tab" type="button" data-ranking="gridReadinessScore">Grid</button>
+              </div>
+              <ol id="ranking-list" class="ranking-list"></ol>
+            </section>
+          </aside>
+        </section>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

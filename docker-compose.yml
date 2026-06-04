@@ -1,0 +1,8 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: germany-energy-intelligence-platform
+    ports:
+      - "8080:80"
+    restart: unless-stopped
