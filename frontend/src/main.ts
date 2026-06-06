@@ -2,6 +2,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "../style.css";
 
+(window as Window & { __energyAppBooted?: boolean }).__energyAppBooted = true;
+
 type ScoreMetric =
   | "investmentPriorityScore"
   | "evReadinessScore"
@@ -80,18 +82,23 @@ let selectedRegionId: string | null = null;
 let selectedLayer: L.Layer | null = null;
 
 const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([51.1, 10.2], 6);
+map.createPane("regions");
+map.createPane("stations");
+map.getPane("regions")!.style.zIndex = "410";
+map.getPane("stations")!.style.zIndex = "460";
 
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap"
-}).addTo(map);
-
-const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-  maxZoom: 20,
-  attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
 });
 
+const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+  maxZoom: 20,
+  attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+}).addTo(map);
+
 const stationLayer = L.geoJSON(undefined, {
+  pane: "stations",
   pointToLayer: (_feature, latlng) =>
     L.circleMarker(latlng, {
       radius: 2.2,
@@ -116,6 +123,7 @@ const stationLayer = L.geoJSON(undefined, {
 }).addTo(map);
 
 const regionLayer = L.geoJSON(undefined, {
+  pane: "regions",
   style: (feature) => regionStyle(feature as Feature<RegionProperties>),
   onEachFeature: (feature, layer) => {
     const regionFeature = feature as Feature<RegionProperties>;
@@ -130,8 +138,8 @@ const regionLayer = L.geoJSON(undefined, {
 L.control
   .layers(
     {
-      OpenStreetMap: osm,
-      "Carto Light": carto
+      "Carto Dark": carto,
+      OpenStreetMap: osm
     },
     {
       "EV charging stations": stationLayer,
@@ -296,11 +304,14 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
     .slice(0, 10)
     .forEach((feature, index) => {
       const p = feature.properties;
+      const width = Math.max(8, Math.min(100, p[metric]));
       const item = document.createElement("li");
       item.className = "ranking-item";
       item.innerHTML = `
         <span class="ranking-rank">#${index + 1}</span>
+        <span class="ranking-dot"></span>
         <span class="ranking-name" title="${p.name}">${p.name}</span>
+        <span class="ranking-bar"><i style="width:${width}%"></i></span>
         <span class="score-pill" style="background:${scoreColor(p[metric])}">${p[metric]}</span>
       `;
       item.addEventListener("click", () => {

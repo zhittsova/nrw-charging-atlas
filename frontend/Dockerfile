@@ -3,10 +3,10 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json tsconfig.json vite.config.ts ./
 RUN npm install
-COPY index.html style.css ./
+COPY index.html style.css preview.js ./
 COPY src ./src
 COPY data ./data
-RUN npm run build
+RUN npm run build && cp preview.js dist/preview.js
 
 FROM nginx:1.27-alpine
 
