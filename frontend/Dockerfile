@@ -1,7 +1,14 @@
+FROM node:22-alpine AS build
+
+WORKDIR /app
+COPY package.json tsconfig.json vite.config.ts ./
+RUN npm install
+COPY index.html style.css preview.js ./
+COPY src ./src
+COPY data ./data
+RUN npm run build && cp preview.js dist/preview.js
+
 FROM nginx:1.27-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html /usr/share/nginx/html/index.html
-COPY style.css /usr/share/nginx/html/style.css
-COPY app.js /usr/share/nginx/html/app.js
-COPY data /usr/share/nginx/html/data
+COPY --from=build /app/dist /usr/share/nginx/html
