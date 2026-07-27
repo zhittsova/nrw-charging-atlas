@@ -1,0 +1,15 @@
+services:
+  django:
+    platform: linux/amd64
+  celery:
+    platform: linux/amd64
+  geonode:
+    platform: linux/amd64
+  letsencrypt:
+    platform: linux/amd64
+  geoserver:
+    platform: linux/amd64
+  data-dir-conf:
+    platform: linux/amd64
+  db:
+    platform: linux/amd64
