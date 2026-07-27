@@ -39,6 +39,7 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
                 "HTTPS_PORT=443",
                 "GEOSERVER_WEB_UI_LOCATION=http://localhost/geoserver/",
                 "GEOSERVER_PUBLIC_LOCATION=http://localhost/geoserver/",
+                "GEOSERVER_JAVA_OPTS=-Xms4G -Xmx4G -Dcustom.geoserver.flag=keep-me",
                 'ALLOWED_HOSTS="[\'django\', \'localhost\']"',
             ]
         )
@@ -51,6 +52,12 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         self.assertIn("HTTP_PORT=8000", patched)
         self.assertIn("HTTPS_HOST=", patched)
         self.assertIn("HTTPS_PORT=8443", patched)
+        self.assertIn("MEMCACHED_OPTIONS=", patched)
+        self.assertIn("MEMCACHED_LOCATION=memcached:11211", patched)
+        self.assertIn(
+            "GEOSERVER_JAVA_OPTS=-Xms512m -Xmx1G -Dcustom.geoserver.flag=keep-me",
+            patched,
+        )
         self.assertIn(
             "GEOSERVER_PUBLIC_LOCATION=http://localhost:8080/geoserver/",
             patched,
@@ -94,6 +101,13 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         self.assertEqual(
             upstream["commit"], "614b85f10b5d156f8b04882df59f03c89360adf5"
         )
+
+    def test_local_override_makes_letsencrypt_opt_in(self) -> None:
+        override = (
+            ROOT / "config" / "geonode" / "docker-compose.apple-silicon.yml"
+        ).read_text()
+
+        self.assertIn("letsencrypt:\n    profiles:\n      - tls", override)
 
     def test_init_first_run_prints_only_ready_message(self) -> None:
         module = load_module()
@@ -182,7 +196,6 @@ class GeoNodeLifecycleTest(unittest.TestCase):
                 "celery",
                 "memcached",
                 "geonode",
-                "letsencrypt",
                 "geoserver",
                 "data-dir-conf",
                 "db",
@@ -225,10 +238,10 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             "geonode": "running",
         }
 
-        with self.assertRaisesRegex(RuntimeError, "data-dir-conf.*geoserver.*letsencrypt"):
+        with self.assertRaisesRegex(RuntimeError, "data-dir-conf.*geoserver"):
             module.assert_core_services(states)
 
-    def test_completed_data_dir_configuration_is_accepted(self) -> None:
+    def test_exited_data_dir_configuration_is_reported_unhealthy(self) -> None:
         module = load_module()
         states = {
             "django": "running",
@@ -242,7 +255,47 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             "redis": "healthy",
         }
 
-        module.assert_core_services(states)
+        with self.assertRaisesRegex(RuntimeError, "data-dir-conf"):
+            module.assert_core_services(states)
+
+    def test_wait_for_core_services_retries_starting_service_until_healthy(self) -> None:
+        module = load_module()
+        starting = {
+            "django": "healthy",
+            "celery": "running",
+            "memcached": "healthy",
+            "geonode": "running",
+            "geoserver": "starting",
+            "data-dir-conf": "healthy",
+            "db": "healthy",
+            "redis": "healthy",
+        }
+        healthy = {**starting, "geoserver": "healthy"}
+
+        with (
+            patch.object(module, "stack_status", side_effect=[starting, healthy]) as status,
+            patch.object(module.time, "sleep") as sleep,
+        ):
+            module.wait_for_core_services(timeout=1)
+
+        self.assertEqual(status.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_wait_for_core_services_times_out_with_last_health_error(self) -> None:
+        module = load_module()
+        states = {"db": "healthy"}
+
+        with (
+            patch.object(module, "stack_status", return_value=states),
+            patch.object(module.time, "monotonic", side_effect=[0, 0, 1]),
+            patch.object(module.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "Timed out waiting for GeoNode core services:.*geoserver"
+            ):
+                module.wait_for_core_services(timeout=1)
+
+        sleep.assert_called_once_with(2)
 
     def test_parse_compose_ps_prefers_health_and_falls_back_to_state(self) -> None:
         module = load_module()
@@ -250,6 +303,16 @@ class GeoNodeLifecycleTest(unittest.TestCase):
         states = module.parse_compose_ps(
             '[{"Service": "db", "Health": "healthy", "State": "running"}, '
             '{"Service": "django", "State": "running"}]'
+        )
+
+        self.assertEqual(states, {"db": "healthy", "django": "running"})
+
+    def test_parse_compose_ps_supports_ndjson(self) -> None:
+        module = load_module()
+
+        states = module.parse_compose_ps(
+            '{"Service": "db", "Health": "healthy"}\n'
+            '{"Service": "django", "State": "running"}\n'
         )
 
         self.assertEqual(states, {"db": "healthy", "django": "running"})
@@ -264,6 +327,35 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             module.wait_for_http("http://example.test", timeout=1)
 
         urlopen.assert_called_once_with("http://example.test", timeout=5)
+
+    def test_wait_for_http_retries_connection_reset_before_success(self) -> None:
+        module = load_module()
+        response = MagicMock()
+        response.status = 200
+        successful_request = MagicMock()
+        successful_request.__enter__.return_value = response
+
+        with (
+            patch.object(module, "urlopen") as urlopen,
+            patch.object(module.time, "sleep") as sleep,
+        ):
+            urlopen.side_effect = [ConnectionResetError(54, "Connection reset"), successful_request]
+            module.wait_for_http("http://example.test", timeout=1)
+
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_wait_until_healthy_waits_for_core_service_health(self) -> None:
+        module = load_module()
+
+        with (
+            patch.object(module, "wait_for_http") as wait_for_http,
+            patch.object(module, "wait_for_core_services") as wait_for_core_services,
+        ):
+            module.wait_until_healthy()
+
+        self.assertEqual(wait_for_http.call_count, 2)
+        wait_for_core_services.assert_called_once_with()
 
     def test_start_initializes_brings_up_and_waits_for_stack(self) -> None:
         module = load_module()

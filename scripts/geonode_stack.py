@@ -25,13 +25,11 @@ CORE_SERVICES = {
     "celery",
     "memcached",
     "geonode",
-    "letsencrypt",
     "geoserver",
     "data-dir-conf",
     "db",
     "redis",
 }
-COMPLETED_SERVICES = {"data-dir-conf"}
 
 LOCAL_ENV = {
     "SITEURL": "http://localhost:8000/",
@@ -42,9 +40,16 @@ LOCAL_ENV = {
     "HTTPS_PORT": "8443",
     "GEOSERVER_WEB_UI_LOCATION": "http://localhost:8080/geoserver/",
     "GEOSERVER_PUBLIC_LOCATION": "http://localhost:8080/geoserver/",
+    "MEMCACHED_LOCATION": "memcached:11211",
+    "MEMCACHED_OPTIONS": "",
     "ALLOWED_HOSTS": "\"['django', 'localhost', '127.0.0.1']\"",
     "LETSENCRYPT_MODE": "disabled",
 }
+
+
+def patch_geoserver_java_opts(value: str) -> str:
+    value = re.sub(r"-Xms\S+", "-Xms512m", value)
+    return re.sub(r"-Xmx\S+", "-Xmx1G", value)
 
 
 def patch_env_text(text: str) -> str:
@@ -56,6 +61,8 @@ def patch_env_text(text: str) -> str:
         if key in LOCAL_ENV:
             output.append(f"{key}={LOCAL_ENV[key]}")
             seen.add(key)
+        elif key == "GEOSERVER_JAVA_OPTS":
+            output.append(f"{key}={patch_geoserver_java_opts(line.split('=', 1)[1])}")
         else:
             output.append(line)
     output.extend(f"{key}={value}" for key, value in LOCAL_ENV.items() if key not in seen)
@@ -127,8 +134,12 @@ def parse_compose_ps(output: str) -> dict[str, str]:
     output = output.strip()
     if not output:
         return {}
-    parsed = json.loads(output)
-    rows = parsed if isinstance(parsed, list) else [parsed]
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        rows = [json.loads(line) for line in output.splitlines()]
+    else:
+        rows = parsed if isinstance(parsed, list) else [parsed]
     return {
         row["Service"]: str(row.get("Health") or row.get("State") or "unknown").lower()
         for row in rows
@@ -150,8 +161,7 @@ def assert_core_services(states: dict[str, str]) -> None:
     bad = sorted(
         name
         for name in CORE_SERVICES & states.keys()
-        if states[name]
-        not in ({"healthy", "running", "exited"} if name in COMPLETED_SERVICES else {"healthy", "running"})
+        if states[name] not in {"healthy", "running"}
     )
     problems = missing + bad
     if problems:
@@ -166,10 +176,23 @@ def wait_for_http(url: str, timeout: float = 300.0) -> None:
             with urlopen(url, timeout=5) as response:
                 if 200 <= response.status < 400:
                     return
-        except (HTTPError, URLError, TimeoutError) as exc:
+        except (HTTPError, URLError, TimeoutError, ConnectionResetError) as exc:
             last_error = exc
         time.sleep(2)
     raise RuntimeError(f"Timed out waiting for {url}: {last_error}")
+
+
+def wait_for_core_services(timeout: float = 300.0) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: RuntimeError | None = None
+    while time.monotonic() < deadline:
+        try:
+            assert_core_services(stack_status())
+            return
+        except RuntimeError as exc:
+            last_error = exc
+        time.sleep(2)
+    raise RuntimeError(f"Timed out waiting for GeoNode core services: {last_error}")
 
 
 def wait_until_healthy() -> None:
@@ -178,7 +201,7 @@ def wait_until_healthy() -> None:
         "http://localhost:8080/geoserver/ows"
         "?service=WMS&version=1.3.0&request=GetCapabilities"
     )
-    assert_core_services(stack_status())
+    wait_for_core_services()
 
 
 def initialize_environment() -> None:

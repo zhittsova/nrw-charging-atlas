@@ -6,6 +6,8 @@ services:
   geonode:
     platform: linux/amd64
   letsencrypt:
+    profiles:
+      - tls
     platform: linux/amd64
   geoserver:
     platform: linux/amd64
