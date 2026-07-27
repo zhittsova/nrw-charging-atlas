@@ -77,10 +77,26 @@ def assert_resolved_env(text: str) -> None:
         raise ValueError(f"GeoNode .env has unresolved placeholders: {', '.join(unresolved)}")
 
 
+def upstream_pin() -> dict[str, str]:
+    expected = json.loads(UPSTREAM_PIN_PATH.read_text(encoding="utf-8"))
+    repository = expected.get("repository")
+    commit = expected.get("commit")
+    if not isinstance(repository, str) or not isinstance(commit, str):
+        raise RuntimeError("config/geonode-upstream.json must contain repository and commit")
+    return {"repository": repository, "commit": commit}
+
+
+def normalize_repository_url(url: str) -> str:
+    return url.removesuffix(".git").rstrip("/")
+
+
 def validate_upstream_checkout() -> None:
     if not (GEONODE_DIR / ".git").exists():
-        raise RuntimeError("Official GeoNode checkout is missing at geonode/")
-    expected = json.loads(UPSTREAM_PIN_PATH.read_text(encoding="utf-8"))
+        raise RuntimeError(
+            "Official GeoNode checkout is missing at geonode/. "
+            "Run 'python3 scripts/geonode_stack.py provision' first."
+        )
+    expected = upstream_pin()
     commit = subprocess.run(
         ["git", "-C", str(GEONODE_DIR), "rev-parse", "HEAD"],
         check=True,
@@ -95,11 +111,41 @@ def validate_upstream_checkout() -> None:
     ).stdout.strip()
     if (
         commit != expected["commit"]
-        or remote.removesuffix(".git") != expected["repository"].removesuffix(".git")
+        or normalize_repository_url(remote)
+        != normalize_repository_url(expected["repository"])
     ):
         raise RuntimeError(
             "GeoNode checkout does not match config/geonode-upstream.json"
         )
+    status = subprocess.run(
+        ["git", "-C", str(GEONODE_DIR), "status", "--porcelain", "--untracked-files=no"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if status:
+        raise RuntimeError("GeoNode checkout has tracked local modifications")
+
+
+def provision_upstream_checkout() -> None:
+    """Clone the pinned upstream checkout once, without modifying an existing clone."""
+    if GEONODE_DIR.exists():
+        validate_upstream_checkout()
+        return
+    expected = upstream_pin()
+    subprocess.run(
+        ["git", "clone", "--no-checkout", expected["repository"], str(GEONODE_DIR)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(GEONODE_DIR), "checkout", "--detach", expected["commit"]],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    validate_upstream_checkout()
 
 
 def compose_command(*args: str) -> list[str]:
@@ -256,13 +302,17 @@ def stop_stack() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("provision")
     subparsers.add_parser("init")
     subparsers.add_parser("start")
     subparsers.add_parser("stop")
     subparsers.add_parser("status")
     args = parser.parse_args()
 
-    if args.command == "init":
+    if args.command == "provision":
+        provision_upstream_checkout()
+        print("Pinned GeoNode 5.1.0 checkout is ready at geonode/")
+    elif args.command == "init":
         initialize_environment()
         print("GeoNode local environment is ready at geonode/.env")
     elif args.command == "start":
