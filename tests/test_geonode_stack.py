@@ -89,10 +89,114 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         )
         self.assertEqual(command[-2:], ["config", "--quiet"])
 
-    def test_upstream_pin_matches_checked_out_geonode(self) -> None:
+    def test_validate_upstream_checkout_rejects_missing_checkout(self) -> None:
+        """Catches treating an archive without the nested upstream clone as ready."""
         module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            missing_checkout = Path(directory) / "geonode"
+            with patch.object(module, "GEONODE_DIR", missing_checkout):
+                with self.assertRaisesRegex(RuntimeError, "missing"):
+                    module.validate_upstream_checkout()
 
-        module.validate_upstream_checkout()
+    def test_validate_upstream_checkout_accepts_exact_clean_checkout(self) -> None:
+        """Catches accepting a checkout other than the pinned upstream revision."""
+        module = load_module()
+        expected = json.loads((ROOT / "config" / "geonode-upstream.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "geonode"
+            (checkout / ".git").mkdir(parents=True)
+            responses = [
+                subprocess.CompletedProcess([], 0, stdout=f"{expected['commit']}\n"),
+                subprocess.CompletedProcess([], 0, stdout=f"{expected['repository']}.git\n"),
+                subprocess.CompletedProcess([], 0, stdout=""),
+            ]
+            with (
+                patch.object(module, "GEONODE_DIR", checkout),
+                patch.object(module.subprocess, "run", side_effect=responses),
+            ):
+                module.validate_upstream_checkout()
+
+    def test_validate_upstream_checkout_rejects_wrong_revision(self) -> None:
+        """Catches a valid Git checkout at a revision other than GeoNode 5.1.0."""
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "geonode"
+            (checkout / ".git").mkdir(parents=True)
+            responses = [
+                subprocess.CompletedProcess([], 0, stdout="not-the-pinned-revision\n"),
+                subprocess.CompletedProcess([], 0, stdout="https://github.com/GeoNode/geonode.git\n"),
+            ]
+            with (
+                patch.object(module, "GEONODE_DIR", checkout),
+                patch.object(module.subprocess, "run", side_effect=responses),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "does not match"):
+                    module.validate_upstream_checkout()
+
+    def test_validate_upstream_checkout_rejects_tracked_local_changes(self) -> None:
+        """Catches a modified upstream checkout that could invalidate the local stack."""
+        module = load_module()
+        expected = json.loads((ROOT / "config" / "geonode-upstream.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "geonode"
+            (checkout / ".git").mkdir(parents=True)
+            responses = [
+                subprocess.CompletedProcess([], 0, stdout=f"{expected['commit']}\n"),
+                subprocess.CompletedProcess([], 0, stdout=f"{expected['repository']}\n"),
+                subprocess.CompletedProcess([], 0, stdout=" M docker-compose.yml\n"),
+            ]
+            with (
+                patch.object(module, "GEONODE_DIR", checkout),
+                patch.object(module.subprocess, "run", side_effect=responses),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "tracked local modifications"):
+                    module.validate_upstream_checkout()
+
+    def test_provision_upstream_checkout_clones_and_detaches_exact_pin(self) -> None:
+        """Catches first-time provisioning that omits the exact pinned detached checkout."""
+        module = load_module()
+        expected = json.loads((ROOT / "config" / "geonode-upstream.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "geonode"
+
+            def run(command, **_kwargs):
+                if command[:2] == ["git", "clone"]:
+                    (checkout / ".git").mkdir(parents=True)
+                return subprocess.CompletedProcess(command, 0)
+
+            with (
+                patch.object(module, "GEONODE_DIR", checkout),
+                patch.object(module.subprocess, "run", side_effect=run) as run_mock,
+                patch.object(module, "validate_upstream_checkout") as validate,
+            ):
+                module.provision_upstream_checkout()
+
+        commands = [call.args[0] for call in run_mock.call_args_list]
+        self.assertEqual(
+            commands[0],
+            ["git", "clone", "--no-checkout", expected["repository"], str(checkout)],
+        )
+        self.assertEqual(
+            commands[1],
+            ["git", "-C", str(checkout), "checkout", "--detach", expected["commit"]],
+        )
+        validate.assert_called_once_with()
+
+    def test_provision_existing_checkout_only_validates_without_modifying_it(self) -> None:
+        """Catches a repeat provision that rewrites or rejects an already valid checkout."""
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "geonode"
+            (checkout / ".git").mkdir(parents=True)
+            with (
+                patch.object(module, "GEONODE_DIR", checkout),
+                patch.object(module, "validate_upstream_checkout") as validate,
+                patch.object(module.subprocess, "run") as run,
+            ):
+                module.provision_upstream_checkout()
+
+        validate.assert_called_once_with()
+        run.assert_not_called()
 
     def test_upstream_pin_is_official_geonode_5_1_0_release(self) -> None:
         upstream = json.loads((ROOT / "config" / "geonode-upstream.json").read_text())
