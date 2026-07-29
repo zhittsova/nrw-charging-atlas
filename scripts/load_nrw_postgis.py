@@ -297,9 +297,14 @@ def main() -> None:
         raise ValueError("DATABASE_URL or --database-url is required unless --check-only is used")
 
     schema_sql = args.schema.read_text(encoding="utf-8")
+    analytics_sql = (ROOT / "db" / "nrw_analytics.sql").read_text(encoding="utf-8")
     run_psql(
         args.database_url,
-        [f"BEGIN;\n{schema_sql}\nCOMMIT;\n", build_import_script(admin_regions, chargers)],
+        [
+            f"BEGIN;\n{schema_sql}\nCOMMIT;\n",
+            build_import_script(admin_regions, chargers),
+            analytics_sql,
+        ],
     )
     print("loaded raw.admin_regions and raw.chargers")
 

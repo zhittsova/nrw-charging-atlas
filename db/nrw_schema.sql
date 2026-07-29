@@ -105,6 +105,39 @@ CREATE INDEX IF NOT EXISTS raw_renewable_assets_geom_gix ON raw.renewable_assets
 CREATE UNIQUE INDEX IF NOT EXISTS raw_renewable_assets_source_id_uq ON raw.renewable_assets (source_id);
 CREATE INDEX IF NOT EXISTS raw_power_plants_geom_gix ON raw.power_plants USING gist (geom);
 
+CREATE TABLE IF NOT EXISTS raw.energy_consumption_municipal (
+    year integer NOT NULL,
+    municipality_name text NOT NULL,
+    district_name text NOT NULL,
+    nuts_code text NOT NULL,
+    ags text NOT NULL,
+    consumption_gwh numeric NOT NULL,
+    industry_gwh numeric,
+    commerce_services_gwh numeric,
+    households_gwh numeric,
+    source text NOT NULL,
+    PRIMARY KEY (year, ags)
+);
+
+CREATE TABLE IF NOT EXISTS raw.renewable_balance_municipal (
+    year integer NOT NULL,
+    municipality_name text NOT NULL,
+    district_name text NOT NULL,
+    nuts_code text NOT NULL,
+    ags text NOT NULL,
+    published_generation_mwh numeric,
+    wind_capacity_mw numeric,
+    renewable_capacity_mw numeric,
+    renewable_net_addition_mw numeric,
+    source text NOT NULL,
+    PRIMARY KEY (year, ags)
+);
+
+CREATE INDEX IF NOT EXISTS raw_energy_consumption_nuts_year_idx
+    ON raw.energy_consumption_municipal (nuts_code, year);
+CREATE INDEX IF NOT EXISTS raw_renewable_balance_nuts_year_idx
+    ON raw.renewable_balance_municipal (nuts_code, year);
+
 CREATE OR REPLACE VIEW staging.nrw_boundary AS
 SELECT ST_Union(geom)::geometry(MultiPolygon, 4326) AS geom
 FROM raw.admin_regions

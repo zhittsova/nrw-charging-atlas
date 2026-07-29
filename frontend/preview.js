@@ -1,48 +1,64 @@
 (function () {
+  const NRW_CENTER = [51.43, 7.66];
+  const NRW_BOUNDS = [[50.32, 5.86], [52.53, 9.47]];
+
   const datasets = [
     {
       id: "stations",
-      title: "EV Charging Stations Germany",
+      title: "NRW EV Charging Stations",
       type: "Point GeoJSON",
-      file: "data/ev_charging_stations_sample.geojson",
-      service: "GeoServer WFS: geonode:ev_charging_stations_germany",
-      note: "Real replacement: Bundesnetzagentur Ladesaeulenregister"
+      file: "data/nrw_charging_stations_sample.geojson",
+      service: "GeoServer WFS: geonode:nrw_ev_charging_stations",
+      note: "Bundesnetzagentur Ladesaeulenregister filtered to Nordrhein-Westfalen"
     },
     {
       id: "regions",
-      title: "NUTS-3 / Planning Regions",
+      title: "NRW NUTS-3 Districts",
       type: "Polygon GeoJSON",
-      file: "data/germany_regions_sample.geojson",
-      service: "GeoServer WMS/WFS: geonode:germany_regions",
-      note: "Real replacement: Eurostat GISCO NUTS-3 filtered to Germany"
+      file: "data/nrw_regions_sample.geojson",
+      service: "GeoServer WMS/WFS: geonode:nrw_nuts3_districts",
+      note: "Eurostat GISCO NUTS-3 2024 filtered by NUTS prefix DEA"
     },
     {
       id: "metrics",
-      title: "Regional Energy Scores",
+      title: "NRW Priority Metrics",
       type: "Derived metrics",
-      file: "data/processed/nuts3_charger_metrics.geojson",
+      file: "data/processed/nrw_district_metrics.geojson",
       service: "GeoNode REST API and PostGIS materialized views",
-      note: "Scores should be produced by the pandas/geopandas pipeline"
+      note: "Current scores use charger supply only until population, roads, grid and renewable layers are connected"
     }
   ];
 
+  const runtimeConfig = window.__energyAppConfig || {
+    geonodeBaseUrl: "http://localhost:8000",
+    geoserverBaseUrl: "http://localhost:8080",
+    geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
+    geonodeRegionsLayer: "geonode:nrw_nuts3_districts"
+  };
+
+  const scoreLabels = {
+    investmentPriorityScore: "Investment Priority",
+    chargingSupplyScore: "Charging Supply",
+    chargerDeficitScore: "Charger Deficit",
+    dataQualityScore: "Data Quality"
+  };
+
+  const scoreKeys = {
+    investmentPriorityScore: ["investmentPriorityScore", "investment_priority_score"],
+    chargingSupplyScore: ["chargingSupplyScore", "charging_supply_score"],
+    chargerDeficitScore: ["chargerDeficitScore", "charger_deficit_score"],
+    dataQualityScore: ["dataQualityScore", "data_quality_score"]
+  };
+
   const fallbackRegions = [
-    ["de-berlin", "Berlin", "Berlin", [13.08, 52.35, 13.76, 52.68], 2714, 7.2, 1.2, 84, 79, 54, 83.9],
-    ["de-hamburg", "Hamburg", "Hamburg", [9.7, 53.39, 10.33, 53.74], 1291, 6.8, 1.3, 82, 77, 57, 80.5],
-    ["de-munich", "Munich Region", "Bavaria", [11.05, 47.82, 12.05, 48.45], 2503, 8.4, 3.1, 79, 83, 49, 78.2],
-    ["de-frankfurt", "Frankfurt Rhine-Main", "Hesse", [7.85, 49.65, 9.15, 50.45], 3544, 6.1, 4.8, 86, 68, 63, 82.1],
-    ["de-ruhr", "Ruhr Area", "North Rhine-Westphalia", [6.55, 51.18, 7.65, 51.75], 2397, 4.7, 3.9, 83, 51, 78, 81.3],
-    ["de-stuttgart", "Stuttgart Region", "Baden-Wurttemberg", [8.75, 48.45, 9.65, 49.05], 2184, 7.8, 2.4, 81, 80, 46, 77.8],
-    ["de-cologne", "Cologne-Bonn Region", "North Rhine-Westphalia", [6.55, 50.55, 7.45, 51.15], 1851, 5.2, 4.3, 76, 56, 72, 79.4],
-    ["de-dresden", "Dresden Region", "Saxony", [12.8, 50.75, 14.1, 51.25], 670, 5.0, 6.5, 71, 50, 61, 63.5],
-    ["de-leipzig", "Leipzig Region", "Saxony", [11.85, 51.05, 12.75, 51.55], 504, 4.8, 6.2, 69, 49, 65, 65.1],
-    ["de-hannover", "Hannover Region", "Lower Saxony", [9.4, 52.15, 10.05, 52.6], 626, 5.4, 4.7, 74, 55, 59, 66.6],
-    ["de-bremen", "Bremen-Oldenburg", "Bremen / Lower Saxony", [8.3, 52.85, 9.15, 53.45], 739, 4.2, 7.2, 70, 42, 70, 67.2],
-    ["de-kiel", "Kiel-Schleswig", "Schleswig-Holstein", [9.55, 53.95, 10.7, 54.65], 437, 4.5, 7.6, 65, 41, 69, 55.4],
-    ["de-potsdam", "Potsdam-Havelland", "Brandenburg", [12.55, 52.2, 13.25, 52.65], 312, 4.1, 7.1, 68, 38, 71, 57.6],
-    ["de-nuremberg", "Nuremberg Region", "Bavaria", [10.65, 49.1, 11.45, 49.75], 870, 6.4, 5.6, 74, 58, 54, 65.8],
-    ["de-freiburg", "Freiburg-South Baden", "Baden-Wurttemberg", [7.45, 47.62, 8.35, 48.25], 759, 6.6, 5.2, 67, 64, 42, 55.9],
-    ["de-cottbus", "Lausitz-Cottbus", "Brandenburg / Saxony", [13.85, 51.25, 14.75, 51.95], 203, 2.9, 12.5, 62, 25, 80, 54.8]
+    ["DEA23", "Köln, Kreisfreie Stadt", [6.76, 50.83, 7.17, 51.08], 920, 1460, 138, 782, 92, 8, 35],
+    ["DEA11", "Düsseldorf, Kreisfreie Stadt", [6.68, 51.12, 6.94, 51.35], 670, 1040, 102, 568, 84, 16, 35],
+    ["DEA52", "Dortmund, Kreisfreie Stadt", [7.31, 51.39, 7.64, 51.62], 430, 720, 72, 358, 67, 33, 35],
+    ["DEA13", "Essen, Kreisfreie Stadt", [6.86, 51.33, 7.14, 51.55], 360, 580, 61, 299, 58, 42, 35],
+    ["DEA33", "Münster, Kreisfreie Stadt", [7.47, 51.84, 7.78, 52.07], 420, 690, 75, 345, 66, 34, 35],
+    ["DEA21", "Aachen, Städteregion", [5.96, 50.56, 6.52, 50.98], 390, 640, 68, 322, 60, 40, 35],
+    ["DEA41", "Bielefeld, Kreisfreie Stadt", [8.38, 51.90, 8.70, 52.12], 310, 510, 47, 263, 51, 49, 35],
+    ["DEA22", "Bonn, Kreisfreie Stadt", [7.02, 50.62, 7.23, 50.79], 330, 530, 56, 274, 55, 45, 35]
   ];
 
   let activeScore = "investmentPriorityScore";
@@ -68,6 +84,67 @@
     if (element) element.textContent = String(value);
   }
 
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    })[character]);
+  }
+
+  function firstValue(properties, keys) {
+    return keys.map((key) => properties[key]).find((value) => value !== undefined && value !== null && value !== "");
+  }
+
+  function textValue(properties, keys, fallback = "-") {
+    const value = firstValue(properties, keys);
+    return value === undefined ? fallback : String(value);
+  }
+
+  function numericValue(properties, keys, fallback = 0) {
+    const value = firstValue(properties, keys);
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function regionName(properties) {
+    return textValue(properties, ["district_name", "name", "region_name"], "NRW district");
+  }
+
+  function regionId(properties) {
+    return textValue(properties, ["id", "nuts_code", "district_code", "name"], regionName(properties));
+  }
+
+  function scoreValue(properties, metric) {
+    return numericValue(properties, scoreKeys[metric], 0);
+  }
+
+  function formatNumber(value) {
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value);
+  }
+
+  function formatScore(value) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+
+  function trimTrailingSlash(value) {
+    return String(value).replace(/\/+$/, "");
+  }
+
+  function geoserverWfsUrl(typeName) {
+    const baseUrl = trimTrailingSlash(runtimeConfig.geoserverBaseUrl);
+    const query = new URLSearchParams({
+      service: "WFS",
+      version: "2.0.0",
+      request: "GetFeature",
+      typeNames: typeName,
+      outputFormat: "application/json"
+    });
+    return `${baseUrl}/geoserver/ows?${query.toString()}`;
+  }
+
   function scoreColor(score) {
     if (score >= 80) return "#0f766e";
     if (score >= 65) return "#4d9f75";
@@ -79,21 +156,34 @@
   function fallbackRegionCollection() {
     return {
       type: "FeatureCollection",
-      features: fallbackRegions.map(([id, name, state, box, stationCount, chargerDensity, averageDistanceKm, gridReadinessScore, evReadinessScore, chargerDeficitScore, investmentPriorityScore]) => ({
+      features: fallbackRegions.map(([nutsCode, name, box, stationCount, chargingPoints, fastChargers, normalChargers, supply, deficit, quality], index) => ({
         type: "Feature",
         properties: {
-          id,
+          id: nutsCode,
+          nuts_code: nutsCode,
+          district_name: name,
           name,
-          state,
+          region: "Nordrhein-Westfalen",
+          region_abbr: "NRW",
           box,
           stationCount,
-          chargerDensity,
-          averageDistanceKm,
-          substationCount: Math.max(3, Math.round(gridReadinessScore / 7)),
-          evReadinessScore,
-          gridReadinessScore,
-          chargerDeficitScore,
-          investmentPriorityScore
+          chargers_total: stationCount,
+          charging_points_total: chargingPoints,
+          fast_chargers: fastChargers,
+          normal_chargers: normalChargers,
+          chargingSupplyScore: supply,
+          charging_supply_score: supply,
+          chargerDeficitScore: deficit,
+          charger_deficit_score: deficit,
+          investmentPriorityScore: 100 - supply,
+          investment_priority_score: 100 - supply,
+          priorityRank: index + 1,
+          priority_rank: index + 1,
+          priorityTier: deficit > 45 ? "high" : "screening",
+          priority_tier: deficit > 45 ? "high" : "screening",
+          dataQualityScore: quality,
+          data_quality_score: quality,
+          dataQualityFlag: "direct_html_preview"
         },
         geometry: { type: "Polygon", coordinates: polygonFromBox(box) }
       }))
@@ -106,22 +196,25 @@
       type: "FeatureCollection",
       features: regions.features.flatMap((region) => {
         const [west, south, east, north] = region.properties.box;
-        return Array.from({ length: 24 }, (_, localIndex) => {
-          const col = localIndex % 6;
-          const row = Math.floor(localIndex / 6);
-          const longitude = west + ((col + 0.5) / 6) * (east - west);
+        return Array.from({ length: 36 }, (_, localIndex) => {
+          const col = localIndex % 9;
+          const row = Math.floor(localIndex / 9);
+          const longitude = west + ((col + 0.5) / 9) * (east - west);
           const latitude = south + ((row + 0.5) / 4) * (north - south);
-          const id = `preview-${index++}`;
+          const id = `nrw-preview-${index++}`;
+          const power = [22, 50, 150, 300][localIndex % 4];
           return {
             type: "Feature",
             properties: {
               id,
-              name: `${region.properties.name} charging preview ${localIndex + 1}`,
-              operator: ["EnBW", "Aral pulse", "Ionity", "Allego"][localIndex % 4],
-              region: region.properties.name,
-              power_kw: [22, 50, 150, 300][localIndex % 4],
-              connectors: 2 + (localIndex % 5),
-              status: localIndex % 5 === 0 ? "occupied" : "available"
+              name: `${region.properties.name} preview station ${localIndex + 1}`,
+              operator: ["BNetzA preview", "Aral pulse", "EnBW", "Allego"][localIndex % 4],
+              district_name: region.properties.name,
+              region: "Nordrhein-Westfalen",
+              state: "Nordrhein-Westfalen",
+              power_kw: power,
+              charging_points: 2 + (localIndex % 4),
+              status: "preview"
             },
             geometry: { type: "Point", coordinates: [longitude, latitude] }
           };
@@ -131,10 +224,22 @@
   }
 
   async function loadJson(path) {
-    if (location.protocol === "file:") throw new Error("direct file preview");
     const response = await fetch(path);
     if (!response.ok) throw new Error(path);
     return response.json();
+  }
+
+  async function loadJsonWithFallback(primaryPath, fallbackPath) {
+    if (primaryPath === fallbackPath) {
+      return { data: await loadJson(primaryPath), source: `Local GeoJSON: ${fallbackPath}` };
+    }
+
+    try {
+      return { data: await loadJson(primaryPath), source: `GeoNode WFS: ${primaryPath}` };
+    } catch (error) {
+      console.warn(`Falling back from ${primaryPath} to ${fallbackPath}`, error);
+      return { data: await loadJson(fallbackPath), source: `Local GeoJSON fallback: ${fallbackPath}` };
+    }
   }
 
   function renderDatasets() {
@@ -145,7 +250,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = `dataset-button${index === 0 ? " active" : ""}`;
-      button.innerHTML = `<strong>${dataset.title}</strong><span>${dataset.type}</span>`;
+      button.innerHTML = `<strong>${escapeHtml(dataset.title)}</strong><span>${escapeHtml(dataset.type)}</span>`;
       button.addEventListener("click", () => {
         document.querySelectorAll(".dataset-button").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
@@ -161,73 +266,77 @@
     const content = document.getElementById("metadata-content");
     if (!dataset || !content) return;
     content.innerHTML = `
-      <div class="metadata-row"><span>Title</span><strong>${dataset.title}</strong></div>
-      <div class="metadata-row"><span>Dataset type</span><strong>${dataset.type}</strong></div>
-      <div class="metadata-row"><span>Prototype file</span><strong>${dataset.file}</strong></div>
-      <div class="metadata-row"><span>Intended service</span><strong>${dataset.service}</strong></div>
-      <div class="metadata-row"><span>Data note</span><strong>${dataset.note}</strong></div>
+      <div class="metadata-row"><span>Title</span><strong>${escapeHtml(dataset.title)}</strong></div>
+      <div class="metadata-row"><span>Dataset type</span><strong>${escapeHtml(dataset.type)}</strong></div>
+      <div class="metadata-row"><span>Prototype file</span><strong>${escapeHtml(dataset.file)}</strong></div>
+      <div class="metadata-row"><span>Intended service</span><strong>${escapeHtml(dataset.service)}</strong></div>
+      <div class="metadata-row"><span>Data note</span><strong>${escapeHtml(dataset.note)}</strong></div>
     `;
   }
 
   function sortedRegions(metric) {
-    return [...regionFeatures].sort((a, b) => b.properties[metric] - a.properties[metric]);
+    return [...regionFeatures].sort((a, b) => scoreValue(b.properties, metric) - scoreValue(a.properties, metric));
   }
 
   function regionStyle(feature) {
-    const score = feature.properties[activeScore];
+    const score = scoreValue(feature.properties, activeScore);
     return {
-      color: selectedRegionId === feature.properties.id ? "#0b5f59" : "#334155",
-      weight: selectedRegionId === feature.properties.id ? 3 : 1.1,
+      color: selectedRegionId === regionId(feature.properties) ? "#74f0d2" : "#213244",
+      weight: selectedRegionId === regionId(feature.properties) ? 3 : 1,
       fillColor: scoreColor(score),
-      fillOpacity: 0.55
+      fillOpacity: 0.6
     };
   }
 
   function renderKpis(stations, regions) {
-    const averageDensity = regions.features.reduce((sum, feature) => sum + Number(feature.properties.chargerDensity || 0), 0) / regions.features.length;
-    const totalStations = stations.features.length > 500 ? stations.features.length : regions.features.reduce((sum, feature) => sum + Number(feature.properties.stationCount || 0), 0);
-    setText("kpi-total-stations", new Intl.NumberFormat("en-US").format(totalStations));
-    setText("kpi-average-density", `${averageDensity.toFixed(1)} / 10k`);
-    setText("kpi-best-region", sortedRegions("evReadinessScore")[0].properties.name);
-    setText("kpi-underserved-region", sortedRegions("chargerDeficitScore")[0].properties.name);
-    setText("kpi-priority-region", sortedRegions("investmentPriorityScore")[0].properties.name);
+    const supplyScores = regions.features.map((feature) => scoreValue(feature.properties, "chargingSupplyScore"));
+    const averageSupply = supplyScores.reduce((sum, score) => sum + score, 0) / Math.max(1, supplyScores.length);
+    setText("kpi-total-stations", new Intl.NumberFormat("en-US").format(stations.features.length));
+    setText("kpi-average-density", `${averageSupply.toFixed(0)} / 100`);
+    setText("kpi-best-region", regionName(sortedRegions("chargingSupplyScore")[0].properties));
+    setText("kpi-underserved-region", regionName(sortedRegions("chargerDeficitScore")[0].properties));
+    setText("kpi-priority-region", regionName(sortedRegions("investmentPriorityScore")[0].properties));
   }
 
   function renderRegionDetail(feature) {
     const detail = document.getElementById("region-detail");
     if (!detail) return;
     if (!feature) {
-      detail.innerHTML = '<p class="empty-state">Select a region to inspect charger supply, grid readiness, demand, and priority.</p>';
+      detail.innerHTML = '<p class="empty-state">Select a NRW district to inspect charging supply, deficit, priority rank and data gaps.</p>';
       return;
     }
     const p = feature.properties;
-    const priorityRank = sortedRegions("investmentPriorityScore").findIndex((item) => item.properties.id === p.id) + 1;
+    const investment = scoreValue(p, "investmentPriorityScore");
+    const supply = scoreValue(p, "chargingSupplyScore");
+    const deficit = scoreValue(p, "chargerDeficitScore");
+    const quality = scoreValue(p, "dataQualityScore");
+    const priorityRank = numericValue(p, ["priorityRank", "priority_rank"], sortedRegions("investmentPriorityScore").findIndex((item) => regionId(item.properties) === regionId(p)) + 1);
     detail.innerHTML = `
       <div class="detail-title">
-        <h3>${p.name}</h3>
-        <span class="score-pill" style="background:${scoreColor(p.investmentPriorityScore)}">${p.investmentPriorityScore}</span>
+        <h3>${escapeHtml(regionName(p))}</h3>
+        <span class="score-pill" style="background:${scoreColor(investment)}">${formatScore(investment)}</span>
       </div>
       <div class="detail-grid">
-        <div class="detail-metric"><span>Stations</span><strong>${Number(p.stationCount || 0).toLocaleString("en-US")}</strong></div>
-        <div class="detail-metric"><span>Per 10k residents</span><strong>${p.chargerDensity}</strong></div>
-        <div class="detail-metric"><span>EV readiness</span><strong>${p.evReadinessScore}</strong></div>
-        <div class="detail-metric"><span>Grid readiness</span><strong>${p.gridReadinessScore}</strong></div>
-        <div class="detail-metric"><span>Priority score</span><strong>${p.investmentPriorityScore}</strong></div>
-        <div class="detail-metric"><span>Priority rank</span><strong>#${priorityRank}</strong></div>
-        <div class="detail-metric"><span>Avg station distance</span><strong>${p.averageDistanceKm} km</strong></div>
-        <div class="detail-metric"><span>Substations</span><strong>${p.substationCount}</strong></div>
+        <div class="detail-metric"><span>NUTS-3</span><strong>${escapeHtml(textValue(p, ["nuts_code"], "-"))}</strong></div>
+        <div class="detail-metric"><span>Stations</span><strong>${formatNumber(numericValue(p, ["stationCount", "chargers_total"], 0))}</strong></div>
+        <div class="detail-metric"><span>Charging points</span><strong>${formatNumber(numericValue(p, ["charging_points_total"], 0))}</strong></div>
+        <div class="detail-metric"><span>Fast chargers</span><strong>${formatNumber(numericValue(p, ["fast_chargers", "fast_chargers_total"], 0))}</strong></div>
+        <div class="detail-metric"><span>Charging supply</span><strong>${formatScore(supply)}</strong></div>
+        <div class="detail-metric"><span>Charger deficit</span><strong>${formatScore(deficit)}</strong></div>
+        <div class="detail-metric"><span>Priority rank</span><strong>#${formatNumber(priorityRank)}</strong></div>
+        <div class="detail-metric"><span>Data quality</span><strong>${formatScore(quality)}</strong></div>
       </div>
-      <p class="recommendation">Preview mode. For full 23k stations and local files, run a local web server or Vite.</p>
+      <p class="recommendation">Current POC priority is charger-supply based. Add population, road and grid layers before a final investment decision.</p>
     `;
   }
 
   function selectRegion(feature, layer) {
-    selectedRegionId = feature.properties.id;
+    selectedRegionId = regionId(feature.properties);
     if (selectedLayer) regionLayer.resetStyle(selectedLayer);
     selectedLayer = layer || null;
     if (!selectedLayer) {
       regionLayer.eachLayer((candidate) => {
-        if (candidate.feature && candidate.feature.properties.id === selectedRegionId) selectedLayer = candidate;
+        if (candidate.feature && regionId(candidate.feature.properties) === selectedRegionId) selectedLayer = candidate;
       });
     }
     if (selectedLayer) selectedLayer.setStyle(regionStyle(feature));
@@ -244,19 +353,20 @@
     list.innerHTML = "";
     sortedRegions(metric).slice(0, 10).forEach((feature, index) => {
       const p = feature.properties;
-      const width = Math.max(8, Math.min(100, p[metric]));
+      const score = scoreValue(p, metric);
+      const width = Math.max(8, Math.min(100, score));
       const item = document.createElement("li");
       item.className = "ranking-item";
       item.innerHTML = `
         <span class="ranking-rank">#${index + 1}</span>
         <span class="ranking-dot"></span>
-        <span class="ranking-name" title="${p.name}">${p.name}</span>
+        <span class="ranking-name" title="${escapeHtml(regionName(p))}">${escapeHtml(regionName(p))}</span>
         <span class="ranking-bar"><i style="width:${width}%"></i></span>
-        <span class="score-pill" style="background:${scoreColor(p[metric])}">${p[metric]}</span>
+        <span class="score-pill" style="background:${scoreColor(score)}">${formatScore(score)}</span>
       `;
       item.addEventListener("click", () => {
         selectRegion(feature);
-        map.fitBounds(boundsFromBox(p.box), { padding: [24, 24], maxZoom: 8 });
+        if (p.box) map.fitBounds(boundsFromBox(p.box), { padding: [24, 24], maxZoom: 9 });
       });
       list.appendChild(item);
     });
@@ -274,16 +384,19 @@
     let regions;
     let stations;
     try {
-      regions = await loadJson("data/germany_regions_sample.geojson");
-      stations = await loadJson("data/ev_charging_stations_sample.geojson");
+      const regionsResult = await loadJsonWithFallback(geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer), "data/nrw_regions_sample.geojson");
+      const stationsResult = await loadJsonWithFallback(geoserverWfsUrl(runtimeConfig.geonodeStationsLayer), "data/nrw_charging_stations_sample.geojson");
+      regions = regionsResult.data;
+      stations = stationsResult.data;
+      document.querySelector(".map-note").textContent = regionsResult.source.indexOf("GeoNode") === 0 || stationsResult.source.indexOf("GeoNode") === 0 ? "GeoNode-connected preview: regions and/or charging stations are being served from GeoServer WFS, with local GeoJSON fallback if the stack is offline." : "Local-first preview: GeoNode is offline, so the dashboard is using the checked-in NRW GeoJSON snapshot.";
     } catch (error) {
       regions = fallbackRegionCollection();
       stations = fallbackStations(regions);
-      document.querySelector(".map-note").textContent = "Direct HTML preview is using a smaller embedded dataset. Run a local server for the full GeoJSON files.";
+      document.querySelector(".map-note").textContent = "Direct HTML preview is using a small embedded NRW subset. Start a local web server for the full 21k+ BNetzA charger records.";
     }
 
     regionFeatures = regions.features;
-    map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([51.1, 10.2], 6);
+    map = L.map("map", { preferCanvas: true, zoomControl: true }).setView(NRW_CENTER, 7);
     map.createPane("regions");
     map.createPane("stations");
     map.getPane("regions").style.zIndex = "410";
@@ -303,29 +416,44 @@
       style: regionStyle,
       onEachFeature: (feature, layer) => {
         layer.on("click", () => selectRegion(feature, layer));
-        layer.bindTooltip(`${feature.properties.name}: ${feature.properties[activeScore]}`, { sticky: true });
+        layer.bindTooltip(`${regionName(feature.properties)}: ${formatScore(scoreValue(feature.properties, activeScore))} (${scoreLabels[activeScore]})`, { sticky: true });
       }
     }).addTo(map);
 
     const stationLayer = L.geoJSON(stations, {
       pane: "stations",
-      pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
-        radius: stations.features.length > 1000 ? 2.2 : 3.4,
-        color: "#8a2b09",
-        weight: 0.5,
-        fillColor: "#d9480f",
-        fillOpacity: 0.65
-      })
+      pointToLayer: (feature, latlng) => {
+        const power = numericValue(feature.properties || {}, ["power_kw"], 22);
+        return L.circleMarker(latlng, {
+          radius: stations.features.length > 10000 ? 1.6 : 2.8,
+          color: power >= 150 ? "#f97316" : "#0ea5e9",
+          weight: 0.5,
+          fillColor: power >= 150 ? "#fb923c" : "#38bdf8",
+          fillOpacity: 0.72
+        });
+      },
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        layer.bindPopup(`
+          <div class="station-popup">
+            <h3>${escapeHtml(textValue(p, ["name"], "Charging station"))}</h3>
+            <p><strong>Operator:</strong> ${escapeHtml(textValue(p, ["operator"], "unknown"))}</p>
+            <p><strong>District:</strong> ${escapeHtml(textValue(p, ["district_name", "region"], "NRW"))}</p>
+            <p><strong>Power:</strong> ${formatNumber(numericValue(p, ["power_kw"], 0))} kW</p>
+            <p><strong>Charging points:</strong> ${formatNumber(numericValue(p, ["charging_points", "connectors"], 0))}</p>
+          </div>
+        `);
+      }
     }).addTo(map);
 
     L.control.layers({ "Carto Dark": carto, OpenStreetMap: osm }, {
       "EV charging stations": stationLayer,
-      "Administrative regions": regionLayer
+      "NRW NUTS-3 districts": regionLayer
     }, { collapsed: false }).addTo(map);
 
     renderKpis(stations, regions);
     renderRanking();
-    map.fitBounds(regionLayer.getBounds(), { padding: [24, 24] });
+    map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });
 
     document.getElementById("score-mode").addEventListener("change", (event) => {
       activeScore = event.target.value;

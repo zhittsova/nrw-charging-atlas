@@ -153,6 +153,7 @@ def main() -> None:
         [
             (ROOT / "db/nrw_schema.sql").read_text(encoding="utf-8"),
             build_import_script(plants, roads, renewables),
+            (ROOT / "db/nrw_analytics.sql").read_text(encoding="utf-8"),
         ],
     )
     print(f"loaded OPSD={len(plants)}, roads={len(roads)}, renewables={len(renewables)}")

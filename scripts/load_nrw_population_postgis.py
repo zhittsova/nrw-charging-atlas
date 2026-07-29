@@ -67,7 +67,10 @@ FROM import_population;
 REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;
 COMMIT;
 """
-    run_psql(args.database_url, [sql])
+    run_psql(
+        args.database_url,
+        [sql, (ROOT / "db/nrw_analytics.sql").read_text(encoding="utf-8")],
+    )
     print(f"loaded population for {len(rows)} districts; years {min(r['reference_year'] for r in rows)}-"
           f"{max(r['reference_year'] for r in rows)}")
 
