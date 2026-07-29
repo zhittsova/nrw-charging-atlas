@@ -3,9 +3,17 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Germany Energy Infrastructure Intelligence Platform</title>
+    <title>Geospatial EV Charging Infrastructure Intelligence Platform for NRW</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="./style.css">
+    <script>
+      window.__energyAppConfig = {
+        geonodeBaseUrl: "http://localhost:8000",
+        geoserverBaseUrl: "http://localhost:8080",
+        geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
+        geonodeRegionsLayer: "geonode:nrw_nuts3_districts"
+      };
+    </script>
   </head>
   <body>
     <div class="app-shell">
@@ -36,8 +44,8 @@
       <main class="app-main">
         <header class="app-header">
           <div>
-            <p class="eyebrow">GeoNode Energy Intelligence</p>
-            <h1>Germany Energy Infrastructure Intelligence Platform</h1>
+            <p class="eyebrow">NRW Energy Infrastructure Intelligence</p>
+            <h1>Geospatial EV Charging Infrastructure Intelligence Platform for NRW</h1>
           </div>
           <div class="header-status">
             <span class="status-dot"></span>
@@ -49,7 +57,7 @@
           <article class="kpi-card kpi-green">
             <div class="kpi-icon">EV</div>
             <div>
-              <span>Total stations</span>
+              <span>Total NRW stations</span>
               <strong id="kpi-total-stations">-</strong>
             </div>
             <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
@@ -59,7 +67,7 @@
           <article class="kpi-card kpi-blue">
             <div class="kpi-icon">D</div>
             <div>
-              <span>Average density</span>
+              <span>Avg supply score</span>
               <strong id="kpi-average-density">-</strong>
             </div>
             <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
@@ -69,7 +77,7 @@
           <article class="kpi-card kpi-purple">
             <div class="kpi-icon">RDY</div>
             <div>
-              <span>Best prepared</span>
+              <span>Best supplied</span>
               <strong id="kpi-best-region">-</strong>
             </div>
             <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
@@ -101,7 +109,7 @@
               <span>68%</span>
             </div>
             <div>
-              <span>Model confidence</span>
+              <span>Data readiness</span>
               <strong>POC</strong>
             </div>
           </article>
@@ -126,16 +134,16 @@
               <h2>Scoring Controls</h2>
               <label class="field-label" for="score-mode">Choropleth score</label>
               <select id="score-mode" class="select-input">
-                <option value="investmentPriorityScore">Investment Priority Score</option>
-                <option value="evReadinessScore">EV Readiness Score</option>
-                <option value="gridReadinessScore">Grid Readiness Score</option>
-                <option value="chargerDeficitScore">Charger Deficit Score</option>
+                <option value="investmentPriorityScore">Investment Priority</option>
+                <option value="chargingSupplyScore">Charging Supply</option>
+                <option value="chargerDeficitScore">Charger Deficit</option>
+                <option value="dataQualityScore">Data Quality</option>
               </select>
               <div class="slider-list" aria-hidden="true">
-                <div class="slider-row"><span>Demand</span><i style="--value: 78%"></i></div>
-                <div class="slider-row"><span>Grid</span><i style="--value: 64%"></i></div>
-                <div class="slider-row"><span>Road</span><i style="--value: 70%"></i></div>
-                <div class="slider-row"><span>Deficit</span><i style="--value: 82%"></i></div>
+                <div class="slider-row"><span>Charger supply</span><i style="--value: 68%"></i></div>
+                <div class="slider-row"><span>Deficit</span><i style="--value: 72%"></i></div>
+                <div class="slider-row"><span>Grid pending</span><i style="--value: 35%"></i></div>
+                <div class="slider-row"><span>Demand pending</span><i style="--value: 35%"></i></div>
               </div>
             </section>
 
@@ -143,9 +151,9 @@
               <div class="donut"></div>
               <div class="legend-list">
                 <span><i class="legend-green"></i>EV supply</span>
-                <span><i class="legend-blue"></i>Grid</span>
-                <span><i class="legend-purple"></i>Demand</span>
-                <span><i class="legend-amber"></i>Roads</span>
+                <span><i class="legend-blue"></i>NUTS-3</span>
+                <span><i class="legend-purple"></i>Demand todo</span>
+                <span><i class="legend-amber"></i>Grid todo</span>
               </div>
             </section>
           </aside>
@@ -157,9 +165,9 @@
               <button type="button">LYR</button>
               <button type="button">FLT</button>
             </div>
-            <div id="map" aria-label="Leaflet map of Germany energy infrastructure intelligence"></div>
+            <div id="map" aria-label="Leaflet map of NRW energy infrastructure intelligence"></div>
             <div class="map-note">
-              Real-data POC: NUTS-3, BNetzA chargers and OPSD are staged. Synthetic regional scores are still used until metrics are rebuilt.
+              NRW case study: 53 real NUTS-3 districts and BNetzA charger records. Demand, roads, grid and renewables are pending enrichment layers.
             </div>
           </section>
 
@@ -171,9 +179,9 @@
               </div>
               <div class="ranking-tabs" role="tablist" aria-label="Ranking type">
                 <button class="ranking-tab active" type="button" data-ranking="investmentPriorityScore">Priority</button>
-                <button class="ranking-tab" type="button" data-ranking="evReadinessScore">EV Ready</button>
+                <button class="ranking-tab" type="button" data-ranking="chargingSupplyScore">Supply</button>
                 <button class="ranking-tab" type="button" data-ranking="chargerDeficitScore">Gap</button>
-                <button class="ranking-tab" type="button" data-ranking="gridReadinessScore">Grid</button>
+                <button class="ranking-tab" type="button" data-ranking="dataQualityScore">Quality</button>
               </div>
               <ol id="ranking-list" class="ranking-list"></ol>
             </section>
@@ -189,7 +197,7 @@
             <section class="panel trend-panel" aria-label="Scenario trend">
               <div class="panel-heading">
                 <h2>Scenario Trend</h2>
-                <span>2026 to 2030</span>
+                <span>screening view</span>
               </div>
               <svg class="trend-chart" viewBox="0 0 360 190" aria-hidden="true">
                 <path class="area area-one" d="M0,162 L40,150 L80,130 L120,145 L160,124 L200,142 L240,110 L280,128 L320,102 L360,118 L360,190 L0,190 Z"></path>
@@ -204,27 +212,27 @@
 
         <section class="bottom-strip" aria-label="Insight layers">
           <article class="mini-card hex-card">
-            <span>Density Heat</span>
+            <span>NRW Charger Density</span>
             <i></i>
           </article>
           <article class="mini-card region-card">
-            <span>NUTS-3 Readiness</span>
+            <span>NUTS-3 Districts</span>
             <i></i>
           </article>
           <article class="mini-card network-card">
-            <span>Grid Network</span>
+            <span>Grid Data Todo</span>
             <i></i>
           </article>
           <article class="mini-card corridor-card">
-            <span>Corridors</span>
+            <span>Road Corridors Todo</span>
             <i></i>
           </article>
           <article class="mini-card demand-card">
-            <span>Demand Hotspots</span>
+            <span>Demand Data Todo</span>
             <i></i>
           </article>
           <article class="mini-card point-card">
-            <span>Station Assets</span>
+            <span>BNetzA Assets</span>
             <i></i>
           </article>
         </section>

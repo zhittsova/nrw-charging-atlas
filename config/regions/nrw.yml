@@ -1,0 +1,24 @@
+region_name: Nordrhein-Westfalen
+region_abbr: NRW
+country: Germany
+case_study_title: Geospatial EV Charging Infrastructure Intelligence Platform for NRW
+nuts1: DEA
+ags_prefix: "05"
+analysis_level: NUTS-3 / Kreis
+projected_crs: EPSG:25832
+web_crs: EPSG:4326
+default_map_center: [51.43, 7.66]
+default_map_zoom: 7
+default_bounds: [5.86, 50.32, 9.47, 52.53]
+spatial_buffer_km: 10
+major_road_classes:
+  - motorway
+  - trunk
+  - primary
+  - secondary
+frontend_region_file: data/nrw_regions_sample.geojson
+frontend_charger_file: data/nrw_charging_stations_sample.geojson
+raw_nuts3_path: data/raw/nuts3_regions_gisco_2024.geojson
+raw_bnetza_path: data/raw/bnetza_ladesaeulenregister.csv
+processed_metrics_path: data/processed/nrw_district_metrics.geojson
+processed_scores_path: data/processed/nrw_priority_scores.csv
