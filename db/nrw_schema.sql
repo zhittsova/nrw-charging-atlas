@@ -4,6 +4,7 @@ CREATE SCHEMA IF NOT EXISTS raw;
 CREATE SCHEMA IF NOT EXISTS staging;
 CREATE SCHEMA IF NOT EXISTS analytics;
 CREATE SCHEMA IF NOT EXISTS publish;
+CREATE SCHEMA IF NOT EXISTS scenario;
 
 CREATE TABLE IF NOT EXISTS raw.chargers (
     source_id text NOT NULL,
@@ -36,6 +37,73 @@ CREATE UNIQUE INDEX IF NOT EXISTS raw_admin_regions_nuts_code_uq
     ON raw.admin_regions (nuts_code);
 CREATE INDEX IF NOT EXISTS raw_admin_regions_geom_gix
     ON raw.admin_regions USING gist (geom);
+
+CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name text NOT NULL,
+    charging_points integer NOT NULL,
+    power_kw numeric NOT NULL,
+    nuts_code text NOT NULL,
+    status text NOT NULL DEFAULT 'proposed',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    geom geometry(Point, 4326) NOT NULL,
+    CONSTRAINT proposed_chargers_name_check
+        CHECK (char_length(btrim(name)) BETWEEN 1 AND 120),
+    CONSTRAINT proposed_chargers_charging_points_check
+        CHECK (charging_points BETWEEN 1 AND 100),
+    CONSTRAINT proposed_chargers_power_kw_check
+        CHECK (power_kw BETWEEN 1 AND 1000),
+    CONSTRAINT proposed_chargers_status_check
+        CHECK (status = 'proposed')
+);
+
+CREATE INDEX IF NOT EXISTS proposed_chargers_geom_gix
+    ON scenario.proposed_chargers USING gist (geom);
+CREATE INDEX IF NOT EXISTS proposed_chargers_nuts_code_idx
+    ON scenario.proposed_chargers (nuts_code);
+
+CREATE OR REPLACE FUNCTION scenario.validate_proposed_charger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    district_matches integer;
+    matched_nuts_code text;
+BEGIN
+    NEW.name := btrim(NEW.name);
+    IF NEW.name = '' THEN
+        RAISE EXCEPTION 'Proposed charger name must not be empty';
+    END IF;
+
+    IF ST_IsEmpty(NEW.geom)
+       OR ST_X(NEW.geom) NOT BETWEEN -180 AND 180
+       OR ST_Y(NEW.geom) NOT BETWEEN -90 AND 90
+    THEN
+        RAISE EXCEPTION 'Proposed charger must use finite EPSG:4326 coordinates';
+    END IF;
+
+    SELECT COUNT(*), MIN(d.nuts_code)
+    INTO district_matches, matched_nuts_code
+    FROM raw.admin_regions d
+    WHERE d.nuts_code LIKE 'DEA%'
+      AND ST_Covers(d.geom, NEW.geom);
+
+    IF district_matches <> 1 THEN
+        RAISE EXCEPTION 'Proposed charger must fall inside exactly one NRW district';
+    END IF;
+
+    NEW.nuts_code := matched_nuts_code;
+    NEW.status := 'proposed';
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS proposed_chargers_validate_before_write
+    ON scenario.proposed_chargers;
+CREATE TRIGGER proposed_chargers_validate_before_write
+BEFORE INSERT OR UPDATE ON scenario.proposed_chargers
+FOR EACH ROW
+EXECUTE FUNCTION scenario.validate_proposed_charger();
 
 CREATE TABLE IF NOT EXISTS raw.population (
     district_code text,
