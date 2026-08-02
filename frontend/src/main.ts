@@ -86,7 +86,7 @@ const NRW_BOUNDS: L.LatLngBoundsExpression = [
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   geonodeBaseUrl: "http://localhost:8000",
-  geoserverBaseUrl: "http://localhost:8080",
+  geoserverBaseUrl: "",
   geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
   geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
   scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",

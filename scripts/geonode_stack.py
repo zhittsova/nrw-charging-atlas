@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ GEONODE_DIR = ROOT / "geonode"
 ENV_PATH = GEONODE_DIR / ".env"
 COMPOSE_PATH = GEONODE_DIR / "docker-compose.yml"
 APPLE_SILICON_COMPOSE_PATH = ROOT / "config" / "geonode" / "docker-compose.apple-silicon.yml"
+PROJECT_COMPOSE_PATH = ROOT / "config" / "geonode" / "docker-compose.nrw-project.yml"
 UPSTREAM_PIN_PATH = ROOT / "config" / "geonode-upstream.json"
 
 CORE_SERVICES = {
@@ -29,6 +31,7 @@ CORE_SERVICES = {
     "data-dir-conf",
     "db",
     "redis",
+    "frontend",
 }
 
 LOCAL_ENV = {
@@ -44,7 +47,17 @@ LOCAL_ENV = {
     "MEMCACHED_OPTIONS": "",
     "ALLOWED_HOSTS": "\"['django', 'localhost', '127.0.0.1']\"",
     "LETSENCRYPT_MODE": "disabled",
+    "NRW_DATABASE_NAME": "nrw_gis",
+    "NRW_DATABASE_USER": "nrw_owner",
+    "NRW_GEOSERVER_READ_USER": "nrw_geoserver_read",
+    "NRW_GEOSERVER_SCENARIO_USER": "nrw_geoserver_scenario",
 }
+
+PROJECT_SECRET_KEYS = (
+    "NRW_DATABASE_PASSWORD",
+    "NRW_GEOSERVER_READ_PASSWORD",
+    "NRW_GEOSERVER_SCENARIO_PASSWORD",
+)
 
 
 def patch_geoserver_java_opts(value: str) -> str:
@@ -67,6 +80,26 @@ def patch_env_text(text: str) -> str:
             output.append(line)
     output.extend(f"{key}={value}" for key, value in LOCAL_ENV.items() if key not in seen)
     return "\n".join(output) + "\n"
+
+
+def ensure_project_env_values(
+    text: str,
+    *,
+    token_factory=lambda: secrets.token_urlsafe(24),
+) -> str:
+    present = {
+        line.split("=", 1)[0]
+        for line in text.splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+    additions = [
+        f"{key}={token_factory()}"
+        for key in PROJECT_SECRET_KEYS
+        if key not in present
+    ]
+    if not additions:
+        return text
+    return text.rstrip("\n") + "\n" + "\n".join(additions) + "\n"
 
 
 def assert_resolved_env(text: str) -> None:
@@ -160,6 +193,8 @@ def compose_command(*args: str) -> list[str]:
         str(COMPOSE_PATH),
         "-f",
         str(APPLE_SILICON_COMPOSE_PATH),
+        "-f",
+        str(PROJECT_COMPOSE_PATH),
         *args,
     ]
 
@@ -247,6 +282,7 @@ def wait_until_healthy() -> None:
         "http://localhost:8080/geoserver/ows"
         "?service=WMS&version=1.3.0&request=GetCapabilities"
     )
+    wait_for_http("http://localhost:8081/")
     wait_for_core_services()
 
 
@@ -256,6 +292,7 @@ def initialize_environment() -> None:
         not (GEONODE_DIR / "create-envfile.py").is_file()
         or not COMPOSE_PATH.is_file()
         or not APPLE_SILICON_COMPOSE_PATH.is_file()
+        or not PROJECT_COMPOSE_PATH.is_file()
     ):
         raise RuntimeError("Official GeoNode checkout is missing or incomplete")
     if not ENV_PATH.exists():
@@ -280,7 +317,9 @@ def initialize_environment() -> None:
                 if diagnostic:
                     print(diagnostic, file=sys.stderr, end="" if diagnostic.endswith("\n") else "\n")
             raise
-    text = patch_env_text(ENV_PATH.read_text(encoding="utf-8"))
+    text = ensure_project_env_values(
+        patch_env_text(ENV_PATH.read_text(encoding="utf-8"))
+    )
     assert_resolved_env(text)
     ENV_PATH.write_text(text, encoding="utf-8")
     os.chmod(ENV_PATH, 0o600)

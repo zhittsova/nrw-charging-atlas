@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import tempfile
 import zipfile
 from pathlib import Path
@@ -141,8 +142,10 @@ COMMIT;
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     args = parser.parse_args()
+    if not args.database_url:
+        raise ValueError("DATABASE_URL or --database-url is required")
     plants = read_opsd(ROOT / "data/raw/opsd_conventional_power_plants_de.csv")
     roads = read_roads(ROOT / "data/raw/nrw_infrastructure/transport/Verkehrswerte_EPSG25832_Shape.zip")
     renewables = read_renewables(
