@@ -14,6 +14,12 @@ LONGITUDE = 6.7735
 LATITUDE = 51.2277
 CHARGING_POINTS = 4
 POWER_KW = 150
+REQUIRED_CATALOG_LAYERS = (
+    "nrw_ev_scenario_metrics",
+    "proposed_chargers",
+    "nrw_autobahns",
+    "nrw_regional_roads",
+)
 
 
 def insert_xml(name: str) -> str:
@@ -147,7 +153,7 @@ def verify_catalog(session: requests.Session, geonode_url: str) -> None:
     response = session.get(f"{geonode_url.rstrip('/')}/api/v2/datasets/", params={"page_size": 100}, timeout=60)
     response.raise_for_status()
     body = json.dumps(response.json())
-    missing = [name for name in ("nrw_ev_scenario_metrics", "proposed_chargers") if name not in body]
+    missing = [name for name in REQUIRED_CATALOG_LAYERS if name not in body]
     if missing:
         raise RuntimeError(f"GeoNode catalog is missing project layers: {', '.join(missing)}")
 

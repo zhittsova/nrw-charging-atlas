@@ -43,6 +43,7 @@ class ProjectStackTest(unittest.TestCase):
                 call("scripts/load_nrw_population_postgis.py"),
                 call("scripts/load_nrw_infrastructure_postgis.py"),
                 call("scripts/load_nrw_grid_postgis.py"),
+                call("scripts/load_nrw_road_network_postgis.py"),
                 call("scripts/load_nrw_energy_balance_postgis.py"),
                 call("scripts/initialize_nrw_database.py", "--grant-only"),
             ],

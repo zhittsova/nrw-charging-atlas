@@ -19,6 +19,7 @@ SCENARIO_LAYER = "proposed_chargers"
 
 PUBLISH_LAYERS = {
     "nrw_accessibility": "NRW Road Accessibility",
+    "nrw_autobahns": "NRW Autobahns",
     "nrw_chargers": "Official NRW EV Charging Stations",
     "nrw_district_priority": "NRW District Investment Priority",
     "nrw_ev_baseline_metrics": "NRW EV Readiness Baseline",
@@ -30,6 +31,7 @@ PUBLISH_LAYERS = {
     "nrw_local_energy_balance": "NRW Local Renewable Energy Balance",
     "nrw_renewable_context": "NRW Renewable Context",
     "nrw_renewable_potential": "NRW Renewable Assets",
+    "nrw_regional_roads": "NRW Federal and State Roads",
     "nrw_transport_load": "NRW Transport Load",
 }
 

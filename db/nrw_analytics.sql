@@ -766,6 +766,25 @@ SELECT d.*, a.geom
 FROM analytics.nrw_transport_metrics d
 JOIN staging.nrw_districts a USING (nuts_code);
 
+CREATE OR REPLACE VIEW publish.nrw_autobahns AS
+SELECT source_id, highway, ref, name, geom
+FROM raw.osm_roads
+WHERE highway = 'motorway';
+
+CREATE OR REPLACE VIEW publish.nrw_regional_roads AS
+SELECT
+    osm_id AS source_id,
+    road_class,
+    road_number,
+    name,
+    traffic_total,
+    traffic_light,
+    traffic_heavy,
+    source,
+    geom
+FROM raw.roads
+WHERE road_class IN ('B', 'L');
+
 CREATE OR REPLACE VIEW publish.nrw_grid_proxy AS
 SELECT d.*, a.geom
 FROM analytics.nrw_grid_proxy_metrics d

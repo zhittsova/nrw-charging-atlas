@@ -11,6 +11,10 @@ import verify_project_e2e as verifier  # noqa: E402
 
 
 class ProjectEndToEndVerifierTest(unittest.TestCase):
+    def test_catalog_verification_requires_both_road_layers(self) -> None:
+        self.assertIn("nrw_autobahns", verifier.REQUIRED_CATALOG_LAYERS)
+        self.assertIn("nrw_regional_roads", verifier.REQUIRED_CATALOG_LAYERS)
+
     def test_insert_transaction_escapes_name_and_contains_gml_point(self) -> None:
         document = verifier.insert_xml("Research & Development <NRW>")
 
