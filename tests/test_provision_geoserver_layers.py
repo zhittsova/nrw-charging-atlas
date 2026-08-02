@@ -69,6 +69,10 @@ def config() -> object:
 
 
 class GeoServerProvisioningTest(unittest.TestCase):
+    def test_declares_autobahn_and_regional_road_layers(self) -> None:
+        self.assertEqual(module.PUBLISH_LAYERS["nrw_autobahns"], "NRW Autobahns")
+        self.assertEqual(module.PUBLISH_LAYERS["nrw_regional_roads"], "NRW Federal and State Roads")
+
     def test_flattens_both_supported_acl_json_shapes(self) -> None:
         direct = {"rules": {"nrw.*.r": "*", "nrw.proposed_chargers.w": "*"}}
         entries = {

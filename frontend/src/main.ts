@@ -3,6 +3,13 @@ import "leaflet/dist/leaflet.css";
 import "../style.css";
 import { createScenarioClient, type GeoJsonFeatureCollection } from "./scenarioClient";
 import { projectScenarioProperties, type ScenarioViewMode } from "./scenarioState";
+import {
+  AUTOBAHN_STYLE,
+  REGIONAL_ROAD_STYLE,
+  officialStationStyle,
+  operatorTooltip,
+  scoreColor as presentationScoreColor
+} from "./mapPresentation";
 
 (window as Window & { __energyAppBooted?: boolean }).__energyAppBooted = true;
 
@@ -64,6 +71,17 @@ type StationProperties = {
   [key: string]: unknown;
 };
 
+type RoadProperties = {
+  source_id?: string;
+  highway?: string;
+  ref?: string;
+  road_class?: string;
+  road_number?: string | number;
+  name?: string;
+  traffic_total?: number;
+  [key: string]: unknown;
+};
+
 type Feature<T> = GeoJSON.Feature<GeoJSON.Geometry, T>;
 type FeatureCollection<T> = GeoJSON.FeatureCollection<GeoJSON.Geometry, T>;
 
@@ -74,6 +92,8 @@ type RuntimeConfig = {
   geonodeRegionsLayer: string;
   scenarioMetricsLayer: string;
   proposedChargersLayer: string;
+  autobahnsLayer: string;
+  regionalRoadsLayer: string;
   scenarioFeaturePrefix: string;
   scenarioNamespaceUri: string;
 };
@@ -91,6 +111,8 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
   scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
   proposedChargersLayer: "nrw:proposed_chargers",
+  autobahnsLayer: "nrw:nrw_autobahns",
+  regionalRoadsLayer: "nrw:nrw_regional_roads",
   scenarioFeaturePrefix: "nrw",
   scenarioNamespaceUri: "https://nrw.local/scenario"
 };
@@ -110,33 +132,6 @@ const scenarioClient = createScenarioClient({
     typeName: runtimeConfig.proposedChargersLayer.split(":").pop() ?? "proposed_chargers"
   }
 });
-
-const datasets = [
-  {
-    id: "stations",
-    title: "NRW EV Charging Stations",
-    type: "Point GeoJSON",
-    file: "data/nrw_charging_stations_sample.geojson",
-    service: "GeoServer WFS: geonode:nrw_ev_charging_stations",
-    note: "Bundesnetzagentur Ladesaeulenregister filtered to Nordrhein-Westfalen"
-  },
-  {
-    id: "regions",
-    title: "NRW NUTS-3 Districts",
-    type: "Polygon GeoJSON",
-    file: "data/nrw_regions_sample.geojson",
-    service: "GeoServer WMS/WFS: geonode:nrw_nuts3_districts",
-    note: "Eurostat GISCO NUTS-3 2024 filtered by NUTS prefix DEA"
-  },
-  {
-    id: "metrics",
-    title: "NRW Priority Metrics",
-    type: "Derived metrics",
-    file: "data/processed/nrw_district_metrics.geojson",
-    service: "GeoNode REST API and PostGIS materialized views",
-    note: "PostGIS combines chargers, population, transport load, grid readiness and renewable context"
-  }
-];
 
 const scoreLabels: Record<ScoreMetric, string> = {
   investmentPriorityScore: "Investment Priority",
@@ -166,11 +161,17 @@ let awaitingMapClick = false;
 
 const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView(NRW_CENTER, 7);
 map.createPane("regions");
+map.createPane("regionalRoads");
+map.createPane("autobahnCasing");
+map.createPane("autobahns");
 map.createPane("stations");
 map.createPane("proposedStations");
-map.getPane("regions")!.style.zIndex = "410";
-map.getPane("stations")!.style.zIndex = "460";
-map.getPane("proposedStations")!.style.zIndex = "480";
+map.getPane("regions")!.style.zIndex = "400";
+map.getPane("regionalRoads")!.style.zIndex = "430";
+map.getPane("autobahnCasing")!.style.zIndex = "439";
+map.getPane("autobahns")!.style.zIndex = "440";
+map.getPane("stations")!.style.zIndex = "470";
+map.getPane("proposedStations")!.style.zIndex = "490";
 
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
@@ -187,16 +188,16 @@ const stationLayer = L.geoJSON(undefined, {
   pointToLayer: (feature, latlng) => {
     const p = feature.properties as StationProperties;
     const power = numericValue(p, ["power_kw"], 22);
-    return L.circleMarker(latlng, {
-      radius: power >= 150 ? 2.8 : 1.8,
-      color: power >= 150 ? "#f97316" : "#0ea5e9",
-      weight: 0.55,
-      fillColor: power >= 150 ? "#fb923c" : "#38bdf8",
-      fillOpacity: 0.72
-    });
+    return L.circleMarker(latlng, officialStationStyle(power, map.getZoom()));
   },
   onEachFeature: (feature, layer) => {
     const p = feature.properties as StationProperties;
+    layer.bindTooltip(operatorTooltip(p.operator), {
+      className: "operator-tooltip",
+      direction: "top",
+      offset: [0, -5],
+      sticky: true
+    });
     layer.bindPopup(`
       <div class="station-popup">
         <h3>${escapeHtml(textValue(p, ["name"], "Charging station"))}</h3>
@@ -210,9 +211,56 @@ const stationLayer = L.geoJSON(undefined, {
   }
 }).addTo(map);
 
+function refreshOfficialStationStyles(): void {
+  stationLayer.eachLayer((layer) => {
+    const marker = layer as L.CircleMarker & { feature?: Feature<StationProperties> };
+    if (!marker.setStyle) return;
+    const power = numericValue(marker.feature?.properties ?? {}, ["power_kw"], 22);
+    marker.setStyle(officialStationStyle(power, map.getZoom()));
+  });
+}
+
+map.on("zoomend", refreshOfficialStationStyles);
+
+const regionalRoadLayer = L.geoJSON(undefined, {
+  pane: "regionalRoads",
+  style: REGIONAL_ROAD_STYLE,
+  onEachFeature: (feature, layer) => {
+    const p = feature.properties as RoadProperties;
+    const roadName = textValue(p, ["name", "road_number"], "Regional road");
+    const roadClass = textValue(p, ["road_class"], "B/L");
+    const traffic = numericValue(p, ["traffic_total"], 0);
+    layer.bindTooltip(
+      `<strong>${escapeHtml(roadName)}</strong><span>${escapeHtml(roadClass)} road${traffic ? ` · ${formatNumber(traffic)} vehicles/day` : ""}</span>`,
+      { className: "road-tooltip", sticky: true }
+    );
+  }
+}).addTo(map);
+
+const autobahnCasingLayer = L.geoJSON(undefined, {
+  pane: "autobahnCasing",
+  style: { color: "#fff1f2", weight: AUTOBAHN_STYLE.weight + 2.2, opacity: 0.72 }
+});
+
+const autobahnLineLayer = L.geoJSON(undefined, {
+  pane: "autobahns",
+  style: AUTOBAHN_STYLE,
+  onEachFeature: (feature, layer) => {
+    const p = feature.properties as RoadProperties;
+    const label = textValue(p, ["ref", "name"], "Autobahn");
+    layer.bindTooltip(`<strong>${escapeHtml(label)}</strong><span>Autobahn</span>`, {
+      className: "road-tooltip autobahn-tooltip",
+      sticky: true
+    });
+  }
+});
+
+const autobahnLayer = L.layerGroup([autobahnCasingLayer, autobahnLineLayer]).addTo(map);
+
 const proposedStationLayer = L.geoJSON(undefined, {
   pane: "proposedStations",
   pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+    pane: "proposedStations",
     radius: 6,
     color: "#f4f1ff",
     weight: 1.5,
@@ -263,9 +311,11 @@ L.control
       OpenStreetMap: osm
     },
     {
-      "EV charging stations": stationLayer,
       "Proposed charging stations": proposedStationLayer,
-      "NRW NUTS-3 districts": regionLayer
+      "Official charging stations": stationLayer,
+      "Autobahns": autobahnLayer,
+      "Federal and state roads": regionalRoadLayer,
+      "NRW district indicators": regionLayer
     },
     { collapsed: false }
   )
@@ -357,32 +407,27 @@ function geoserverWfsUrl(typeName: string): string {
 }
 
 function scoreColor(score: number, metric: ScoreMetric = activeScore): string {
-  if (scenarioViewMode === "change") {
-    const improvement = metric === "chargerDeficitScore" || metric === "investmentPriorityScore"
-      ? -score
-      : score;
-    if (improvement >= 10) return "#0f766e";
-    if (improvement > 0) return "#4d9f75";
-    if (improvement === 0) return "#64748b";
-    if (improvement > -10) return "#d97706";
-    return "#b91c1c";
-  }
-  if (score >= 80) return "#0f766e";
-  if (score >= 65) return "#4d9f75";
-  if (score >= 50) return "#c0a33c";
-  if (score >= 35) return "#d97706";
-  return "#b91c1c";
+  return presentationScoreColor(score, scenarioViewMode, metric);
 }
 
 function regionStyle(feature: Feature<RegionProperties>): L.PathOptions {
   const score = scoreValue(feature.properties, activeScore);
   const isSelected = selectedRegionId === regionId(feature.properties);
   return {
-    color: isSelected ? "#74f0d2" : "#213244",
-    weight: isSelected ? 3 : 1,
+    color: isSelected ? "#f8fafc" : "#253448",
+    weight: isSelected ? 3.2 : 0.9,
     fillColor: scoreColor(score, activeScore),
-    fillOpacity: 0.6
+    fillOpacity: 0.46
   };
+}
+
+function restoreOverlayOrder(): void {
+  regionLayer.bringToBack();
+  regionalRoadLayer.bringToFront();
+  autobahnCasingLayer.bringToFront();
+  autobahnLineLayer.bringToFront();
+  stationLayer.bringToFront();
+  proposedStationLayer.bringToFront();
 }
 
 function boundsFromBox(box: [number, number, number, number]): L.LatLngBoundsExpression {
@@ -410,41 +455,6 @@ function sortedRegions(metric: ScoreMetric): Feature<RegionProperties>[] {
       ? Math.abs(bScore) - Math.abs(aScore)
       : bScore - aScore;
   });
-}
-
-function renderDatasets(): void {
-  const list = document.getElementById("dataset-list");
-  if (!list) return;
-  list.innerHTML = "";
-
-  datasets.forEach((dataset, index) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `dataset-button${index === 0 ? " active" : ""}`;
-    button.innerHTML = `<strong>${escapeHtml(dataset.title)}</strong><span>${escapeHtml(dataset.type)}</span>`;
-    button.addEventListener("click", () => {
-      document.querySelectorAll(".dataset-button").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      renderMetadata(dataset.id);
-    });
-    list.appendChild(button);
-  });
-
-  renderMetadata(datasets[0].id);
-}
-
-function renderMetadata(datasetId: string): void {
-  const dataset = datasets.find((item) => item.id === datasetId);
-  const content = document.getElementById("metadata-content");
-  if (!dataset || !content) return;
-
-  content.innerHTML = `
-    <div class="metadata-row"><span>Title</span><strong>${escapeHtml(dataset.title)}</strong></div>
-    <div class="metadata-row"><span>Dataset type</span><strong>${escapeHtml(dataset.type)}</strong></div>
-    <div class="metadata-row"><span>Prototype file</span><strong>${escapeHtml(dataset.file)}</strong></div>
-    <div class="metadata-row"><span>Intended service</span><strong>${escapeHtml(dataset.service)}</strong></div>
-    <div class="metadata-row"><span>Data note</span><strong>${escapeHtml(dataset.note)}</strong></div>
-  `;
 }
 
 function renderKpis(): void {
@@ -592,6 +602,7 @@ async function loadGeoJsonWithFallback<T>(primaryPath: string, fallbackPath: str
 function renderAnalytics(): void {
   regionLayer.clearLayers();
   regionLayer.addData({ type: "FeatureCollection", features: regionFeatures } as FeatureCollection<RegionProperties>);
+  restoreOverlayOrder();
   renderKpis();
   renderRanking();
   if (selectedRegionId) {
@@ -625,6 +636,7 @@ function proposedStationId(feature: Feature<StationProperties>): string {
 function renderProposedStations(): void {
   proposedStationLayer.clearLayers();
   proposedStationLayer.addData(proposedStations);
+  restoreOverlayOrder();
   setText(
     "scenario-station-count",
     `${proposedStations.features.length} station${proposedStations.features.length === 1 ? "" : "s"}`
@@ -714,7 +726,6 @@ map.on("click", (event) => {
 });
 
 async function boot(): Promise<void> {
-  renderDatasets();
   renderRegionDetail(null);
 
   const [regionsResult, stationsResult] = await Promise.all([
@@ -731,9 +742,20 @@ async function boot(): Promise<void> {
   const regions = regionsResult.data;
   const stations = stationsResult.data;
 
+  const roadResults = await Promise.allSettled([
+    fetchGeoJson<RoadProperties>(geoserverWfsUrl(runtimeConfig.regionalRoadsLayer)),
+    fetchGeoJson<RoadProperties>(geoserverWfsUrl(runtimeConfig.autobahnsLayer))
+  ]);
+  if (roadResults[0].status === "fulfilled") regionalRoadLayer.addData(roadResults[0].value);
+  if (roadResults[1].status === "fulfilled") {
+    autobahnCasingLayer.addData(roadResults[1].value);
+    autobahnLineLayer.addData(roadResults[1].value);
+  }
+
   regionFeatures = regions.features as Feature<RegionProperties>[];
   officialStations = stations;
   stationLayer.addData(officialStations);
+  restoreOverlayOrder();
   renderAnalytics();
   renderProposedStations();
   const connectedSourceCount = [regionsResult.source, stationsResult.source]
@@ -743,7 +765,7 @@ async function boot(): Promise<void> {
   if (note) {
     note.textContent =
       regionsResult.source.startsWith("GeoNode") || stationsResult.source.startsWith("GeoNode")
-        ? "GeoNode-connected preview: regions and/or charging stations are being served from GeoServer WFS, with local GeoJSON fallback if the stack is offline."
+        ? "GeoNode-connected map: district indicators, charging stations and available road layers are served from PostGIS through GeoServer WFS."
         : "Local-first preview: GeoNode is offline, so the dashboard is using the checked-in NRW GeoJSON snapshot.";
   }
   map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });

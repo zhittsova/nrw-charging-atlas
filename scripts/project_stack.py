@@ -49,6 +49,7 @@ def seed_database(*, population_snapshot: Path | None = POPULATION_SNAPSHOT) -> 
         run_etl("scripts/load_nrw_population_postgis.py")
     run_etl("scripts/load_nrw_infrastructure_postgis.py")
     run_etl("scripts/load_nrw_grid_postgis.py")
+    run_etl("scripts/load_nrw_road_network_postgis.py")
     run_etl("scripts/load_nrw_energy_balance_postgis.py")
     run_etl("scripts/initialize_nrw_database.py", "--grant-only")
 

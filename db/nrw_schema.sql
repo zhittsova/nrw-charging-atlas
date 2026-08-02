@@ -142,6 +142,19 @@ CREATE TABLE IF NOT EXISTS raw.grid_infrastructure (
     geom geometry(Geometry, 4326)
 );
 
+CREATE TABLE IF NOT EXISTS raw.osm_roads (
+    source_id text NOT NULL,
+    highway text NOT NULL,
+    ref text,
+    name text,
+    geom geometry(Geometry, 4326) NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS raw_osm_roads_source_id_uq
+    ON raw.osm_roads (source_id);
+CREATE INDEX IF NOT EXISTS raw_osm_roads_geom_gix
+    ON raw.osm_roads USING gist (geom);
+
 CREATE UNIQUE INDEX IF NOT EXISTS raw_grid_source_id_uq
     ON raw.grid_infrastructure (source_id);
 CREATE INDEX IF NOT EXISTS raw_grid_geom_gix

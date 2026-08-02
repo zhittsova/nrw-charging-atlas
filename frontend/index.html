@@ -14,6 +14,8 @@
         geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
         scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
         proposedChargersLayer: "nrw:proposed_chargers",
+        autobahnsLayer: "nrw:nrw_autobahns",
+        regionalRoadsLayer: "nrw:nrw_regional_roads",
         scenarioFeaturePrefix: "nrw",
         scenarioNamespaceUri: "https://nrw.local/scenario"
       };
@@ -21,30 +23,6 @@
   </head>
   <body>
     <div class="app-shell">
-      <nav class="nav-rail" aria-label="Primary navigation">
-        <div class="rail-logo" aria-hidden="true">
-          <span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span>
-          <span></span>
-        </div>
-        <button class="rail-button active" type="button" aria-label="Map view">
-          <span class="rail-icon">MAP</span>
-        </button>
-        <button class="rail-button" type="button" aria-label="Layers">
-          <span class="rail-icon">LYR</span>
-        </button>
-        <button class="rail-button" type="button" aria-label="Analytics">
-          <span class="rail-icon">KPI</span>
-        </button>
-        <button class="rail-button" type="button" aria-label="Data catalog">
-          <span class="rail-icon">CAT</span>
-        </button>
-        <div class="rail-spacer"></div>
-        <button class="rail-button" type="button" aria-label="Settings">
-          <span class="rail-icon">CFG</span>
-        </button>
-      </nav>
-
       <main class="app-main">
         <header class="app-header">
           <div>
@@ -64,9 +42,6 @@
               <span>Total NRW stations</span>
               <strong id="kpi-total-stations">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,27 18,25 33,25 45,19 59,20 73,12 88,14 104,9 118,5"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-blue">
             <div class="kpi-icon">D</div>
@@ -74,9 +49,6 @@
               <span>Avg EV readiness</span>
               <strong id="kpi-average-density">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,26 16,25 30,21 43,24 57,19 71,20 85,12 99,14 118,7"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-purple">
             <div class="kpi-icon">RDY</div>
@@ -84,9 +56,6 @@
               <span>Best EV readiness</span>
               <strong id="kpi-best-region">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,28 20,27 34,22 48,16 62,20 76,25 90,12 104,9 118,16"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-amber">
             <div class="kpi-icon">GAP</div>
@@ -94,9 +63,6 @@
               <span>Most underserved</span>
               <strong id="kpi-underserved-region">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,22 17,23 31,18 45,20 59,11 74,14 89,8 104,12 118,7"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-teal">
             <div class="kpi-icon">PRI</div>
@@ -104,36 +70,11 @@
               <span>Highest priority</span>
               <strong id="kpi-priority-region">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,29 16,25 29,26 42,18 56,16 70,8 84,13 98,24 118,14"></polyline>
-            </svg>
-          </article>
-          <article class="kpi-card kpi-ring">
-            <div class="ring-meter" aria-hidden="true">
-              <span>68%</span>
-            </div>
-            <div>
-              <span>Data readiness</span>
-              <strong>POC</strong>
-            </div>
           </article>
         </section>
 
         <section class="command-grid">
           <aside class="left-stack" aria-label="Datasets, filters, and metadata">
-            <section class="panel mode-panel">
-              <div class="tool-tabs" aria-label="Layer shortcuts">
-                <button class="tool-tab active" type="button">Grid</button>
-                <button class="tool-tab" type="button">EV</button>
-                <button class="tool-tab" type="button">Road</button>
-                <button class="tool-tab" type="button">Demand</button>
-              </div>
-
-              <h2>Datasets</h2>
-              <div id="dataset-list" class="dataset-list"></div>
-              <div id="metadata-content" class="metadata-mini"></div>
-            </section>
-
             <section class="panel control-panel">
               <h2>Scoring Controls</h2>
               <label class="field-label" for="score-mode">Choropleth indicator</label>
@@ -162,23 +103,11 @@
               </div>
             </section>
 
-            <section class="panel donut-panel" aria-label="Portfolio mix">
-              <div class="donut"></div>
-              <div class="legend-list">
-                <span><i class="legend-green"></i>EV readiness</span>
-                <span><i class="legend-blue"></i>NUTS-3</span>
-                <span><i class="legend-purple"></i>Renewables</span>
-                <span><i class="legend-amber"></i>Grid readiness</span>
-              </div>
-            </section>
           </aside>
 
           <section class="map-shell">
             <div class="map-toolbar" aria-label="Map tools">
-              <button type="button">PTR</button>
-              <button type="button">SEL</button>
-              <button type="button">LYR</button>
-              <button id="map-add-station" type="button" title="Add a proposed charging station">ADD</button>
+              <button id="map-add-station" type="button" title="Add a proposed charging station">Add station</button>
             </div>
             <div id="map" aria-label="Leaflet map of NRW energy infrastructure intelligence"></div>
             <div class="map-note">
@@ -209,7 +138,7 @@
               <div id="region-detail" class="region-detail"></div>
             </section>
 
-            <section class="panel trend-panel" aria-label="Proposed charging stations">
+            <section class="panel scenario-list-panel" aria-label="Proposed charging stations">
               <div class="panel-heading">
                 <h2>Proposed Stations</h2>
                 <span id="scenario-station-count">0 stations</span>
@@ -219,30 +148,57 @@
           </aside>
         </section>
 
-        <section class="bottom-strip" aria-label="Insight layers">
-          <article class="mini-card hex-card">
-            <span>NRW Charger Density</span>
-            <i></i>
+        <section class="information-grid" aria-label="Methodology and data sources">
+          <article class="panel methodology-panel">
+            <div class="panel-heading">
+              <h2>How the indicators are calculated</h2>
+              <span>0–100 screening scores</span>
+            </div>
+            <p class="method-intro">Input values are normalized against fixed baseline 5th and 95th percentile bounds, then combined using the weights below. Scenario stations change district values without moving the baseline comparison scale.</p>
+            <div class="methodology-list">
+              <section>
+                <h3>EV Readiness</h3>
+                <p><strong>40% Charger Density</strong> + <strong>30% Charger Accessibility</strong> + <strong>30% Population-adjusted Coverage</strong>.</p>
+                <small>Based on official/proposed station locations, distance from the district centroid, district area and Eurostat population.</small>
+              </section>
+              <section>
+                <h3>Charger Deficit</h3>
+                <p><strong>Charger Deficit = 100 − EV Readiness</strong>.</p>
+                <small>A higher value identifies a larger relative charging-infrastructure gap.</small>
+              </section>
+              <section>
+                <h3>Infrastructure Opportunity</h3>
+                <p><strong>40% Transport Load</strong> + <strong>35% Grid Readiness Proxy</strong> + <strong>25% Renewable Context</strong>.</p>
+                <small>Based on Straßen.NRW traffic, mapped OSM power infrastructure and Energieatlas NRW renewable assets.</small>
+              </section>
+              <section>
+                <h3>Investment Priority</h3>
+                <p><strong>60% Charger Deficit</strong> + <strong>40% Infrastructure Opportunity</strong>.</p>
+                <small>Ranks areas where the charging gap and supporting infrastructure context jointly justify closer planning review.</small>
+              </section>
+              <section>
+                <h3>Grid Absorption Risk Proxy</h3>
+                <p><strong>45% Local Energy Balance</strong> + <strong>30% Renewable Growth</strong> + <strong>25% inverse Grid Readiness Proxy</strong>.</p>
+                <small>This is a screening proxy, not measured DSO hosting capacity. Feeder loading, transformer headroom and connection queues are not available.</small>
+              </section>
+            </div>
           </article>
-          <article class="mini-card region-card">
-            <span>NUTS-3 Districts</span>
-            <i></i>
-          </article>
-          <article class="mini-card network-card">
-            <span>Grid Infrastructure</span>
-            <i></i>
-          </article>
-          <article class="mini-card corridor-card">
-            <span>Transport Load</span>
-            <i></i>
-          </article>
-          <article class="mini-card demand-card">
-            <span>Population Coverage</span>
-            <i></i>
-          </article>
-          <article class="mini-card point-card">
-            <span>BNetzA Assets</span>
-            <i></i>
+
+          <article class="panel sources-panel">
+            <div class="panel-heading">
+              <h2>Data sources</h2>
+              <span>Public data, no API keys</span>
+            </div>
+            <ul class="source-list">
+              <li><strong>Bundesnetzagentur</strong><span>Official public charging stations, operators, power and charging points.</span></li>
+              <li><strong>Eurostat GISCO</strong><span>2024 NRW NUTS-3 district boundaries.</span></li>
+              <li><strong>Eurostat population</strong><span>District population denominator for coverage.</span></li>
+              <li><strong>Straßen.NRW</strong><span>Bundesstraße/Landesstraße traffic lines and daily traffic values.</span></li>
+              <li><strong>Open Power System Data</strong><span>Conventional power-plant context.</span></li>
+              <li><strong>Energieatlas NRW</strong><span>Renewable sites, generation, capacity and electricity consumption.</span></li>
+              <li><strong>OpenStreetMap / Geofabrik</strong><span>Autobahns and mapped grid lines, substations and transformers.</span></li>
+            </ul>
+            <p class="source-note">Download URLs, licences, timestamps and checksums are recorded in the source catalogs and <code>data/raw/provenance/</code>.</p>
           </article>
         </section>
       </main>
