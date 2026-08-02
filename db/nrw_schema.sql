@@ -65,6 +65,8 @@ CREATE INDEX IF NOT EXISTS proposed_chargers_nuts_code_idx
 CREATE OR REPLACE FUNCTION scenario.validate_proposed_charger()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     district_matches integer;

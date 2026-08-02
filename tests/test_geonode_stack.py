@@ -80,14 +80,27 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         self.assertIn(str(ROOT / "geonode"), command)
         self.assertIn(str(ROOT / "geonode" / ".env"), command)
         self.assertEqual(
-            command[command.index("-f") + 1 : command.index("-f") + 4],
+            [command[index + 1] for index, value in enumerate(command) if value == "-f"],
             [
                 str(ROOT / "geonode" / "docker-compose.yml"),
-                "-f",
                 str(ROOT / "config" / "geonode" / "docker-compose.apple-silicon.yml"),
+                str(ROOT / "config" / "geonode" / "docker-compose.nrw-project.yml"),
             ],
         )
         self.assertEqual(command[-2:], ["config", "--quiet"])
+
+    def test_project_database_secrets_are_generated_once_and_preserved(self) -> None:
+        module = load_module()
+        source = "POSTGRES_PASSWORD=keep-me\nNRW_DATABASE_PASSWORD=existing\n"
+        generated = iter(["read-password", "scenario-password"])
+
+        patched = module.ensure_project_env_values(source, token_factory=lambda: next(generated))
+        repeated = module.ensure_project_env_values(patched, token_factory=lambda: "must-not-be-used")
+
+        self.assertIn("NRW_DATABASE_PASSWORD=existing", patched)
+        self.assertIn("NRW_GEOSERVER_READ_PASSWORD=read-password", patched)
+        self.assertIn("NRW_GEOSERVER_SCENARIO_PASSWORD=scenario-password", patched)
+        self.assertEqual(patched, repeated)
 
     def test_validate_upstream_checkout_rejects_missing_checkout(self) -> None:
         """Catches treating an archive without the nested upstream clone as ready."""
@@ -304,6 +317,7 @@ class GeoNodeLifecycleTest(unittest.TestCase):
                 "data-dir-conf",
                 "db",
                 "redis",
+                "frontend",
             },
         )
 
@@ -340,6 +354,7 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             "celery": "running",
             "memcached": "running",
             "geonode": "running",
+            "frontend": "running",
         }
 
         with self.assertRaisesRegex(RuntimeError, "data-dir-conf.*geoserver"):
@@ -357,6 +372,7 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             "data-dir-conf": "exited",
             "db": "healthy",
             "redis": "healthy",
+            "frontend": "running",
         }
 
         with self.assertRaisesRegex(RuntimeError, "data-dir-conf"):
@@ -373,6 +389,7 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             "data-dir-conf": "healthy",
             "db": "healthy",
             "redis": "healthy",
+            "frontend": "running",
         }
         healthy = {**starting, "geoserver": "healthy"}
 
@@ -458,7 +475,8 @@ class GeoNodeLifecycleTest(unittest.TestCase):
         ):
             module.wait_until_healthy()
 
-        self.assertEqual(wait_for_http.call_count, 2)
+        self.assertEqual(wait_for_http.call_count, 3)
+        wait_for_http.assert_any_call("http://localhost:8081/")
         wait_for_core_services.assert_called_once_with()
 
     def test_start_initializes_brings_up_and_waits_for_stack(self) -> None:
@@ -488,6 +506,7 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             "letsencrypt": "running",
             "geoserver": "running",
             "data-dir-conf": "running",
+            "frontend": "running",
         }
         output = io.StringIO()
 
