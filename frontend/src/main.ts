@@ -6,8 +6,15 @@ import { projectScenarioProperties, type ScenarioViewMode } from "./scenarioStat
 import {
   AUTOBAHN_STYLE,
   REGIONAL_ROAD_STYLE,
+  RENEWABLE_LEGEND_ITEMS,
+  isDisplayedRenewableTechnology,
   officialStationStyle,
   operatorTooltip,
+  renewableAssetStyle,
+  renewableTechnologyLabel,
+  selectAutobahnFeaturesForZoom,
+  selectOfficialStationsForZoom,
+  selectRenewableFeaturesForZoom,
   scoreColor as presentationScoreColor
 } from "./mapPresentation";
 
@@ -82,6 +89,17 @@ type RoadProperties = {
   [key: string]: unknown;
 };
 
+type RenewableProperties = {
+  source_id?: string;
+  name?: string;
+  operator?: string;
+  asset_type?: string;
+  technology?: string;
+  capacity_mw?: number;
+  status?: string;
+  [key: string]: unknown;
+};
+
 type Feature<T> = GeoJSON.Feature<GeoJSON.Geometry, T>;
 type FeatureCollection<T> = GeoJSON.FeatureCollection<GeoJSON.Geometry, T>;
 
@@ -94,6 +112,7 @@ type RuntimeConfig = {
   proposedChargersLayer: string;
   autobahnsLayer: string;
   regionalRoadsLayer: string;
+  renewableAssetsLayer: string;
   scenarioFeaturePrefix: string;
   scenarioNamespaceUri: string;
 };
@@ -113,6 +132,7 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   proposedChargersLayer: "nrw:proposed_chargers",
   autobahnsLayer: "nrw:nrw_autobahns",
   regionalRoadsLayer: "nrw:nrw_regional_roads",
+  renewableAssetsLayer: "nrw:nrw_renewable_potential",
   scenarioFeaturePrefix: "nrw",
   scenarioNamespaceUri: "https://nrw.local/scenario"
 };
@@ -153,6 +173,8 @@ let scenarioViewMode: ScenarioViewMode = "baseline";
 let regionFeatures: Feature<RegionProperties>[] = [];
 let scenarioMetricFeatures: Feature<RegionProperties>[] = [];
 let officialStations: FeatureCollection<StationProperties> = { type: "FeatureCollection", features: [] };
+let autobahnFeatures: FeatureCollection<RoadProperties> = { type: "FeatureCollection", features: [] };
+let renewableAssets: FeatureCollection<RenewableProperties> = { type: "FeatureCollection", features: [] };
 let proposedStations: FeatureCollection<StationProperties> = { type: "FeatureCollection", features: [] };
 let selectedRegionId: string | null = null;
 let selectedLayer: L.Layer | null = null;
@@ -164,12 +186,14 @@ map.createPane("regions");
 map.createPane("regionalRoads");
 map.createPane("autobahnCasing");
 map.createPane("autobahns");
+map.createPane("renewableAssets");
 map.createPane("stations");
 map.createPane("proposedStations");
 map.getPane("regions")!.style.zIndex = "400";
 map.getPane("regionalRoads")!.style.zIndex = "430";
 map.getPane("autobahnCasing")!.style.zIndex = "439";
 map.getPane("autobahns")!.style.zIndex = "440";
+map.getPane("renewableAssets")!.style.zIndex = "460";
 map.getPane("stations")!.style.zIndex = "470";
 map.getPane("proposedStations")!.style.zIndex = "490";
 
@@ -211,16 +235,14 @@ const stationLayer = L.geoJSON(undefined, {
   }
 }).addTo(map);
 
-function refreshOfficialStationStyles(): void {
-  stationLayer.eachLayer((layer) => {
-    const marker = layer as L.CircleMarker & { feature?: Feature<StationProperties> };
-    if (!marker.setStyle) return;
-    const power = numericValue(marker.feature?.properties ?? {}, ["power_kw"], 22);
-    marker.setStyle(officialStationStyle(power, map.getZoom()));
-  });
+function refreshOfficialStations(): void {
+  const visibleStations = selectOfficialStationsForZoom(officialStations.features, map.getZoom());
+  stationLayer.clearLayers();
+  stationLayer.addData({
+    type: "FeatureCollection",
+    features: visibleStations
+  } as FeatureCollection<StationProperties>);
 }
-
-map.on("zoomend", refreshOfficialStationStyles);
 
 const regionalRoadLayer = L.geoJSON(undefined, {
   pane: "regionalRoads",
@@ -239,7 +261,7 @@ const regionalRoadLayer = L.geoJSON(undefined, {
 
 const autobahnCasingLayer = L.geoJSON(undefined, {
   pane: "autobahnCasing",
-  style: { color: "#fff1f2", weight: AUTOBAHN_STYLE.weight + 2.2, opacity: 0.72 }
+  style: { color: "#fff1f2", weight: AUTOBAHN_STYLE.weight + 1.4, opacity: 0.68 }
 });
 
 const autobahnLineLayer = L.geoJSON(undefined, {
@@ -257,14 +279,80 @@ const autobahnLineLayer = L.geoJSON(undefined, {
 
 const autobahnLayer = L.layerGroup([autobahnCasingLayer, autobahnLineLayer]).addTo(map);
 
+const renewableAssetLayer = L.geoJSON(undefined, {
+  pane: "renewableAssets",
+  pointToLayer: (feature, latlng) => {
+    const properties = feature.properties as RenewableProperties;
+    return L.circleMarker(
+      latlng,
+      renewableAssetStyle(properties.technology, numericValue(properties, ["capacity_mw"], 0), map.getZoom())
+    );
+  },
+  onEachFeature: (feature, layer) => {
+    const properties = feature.properties as RenewableProperties;
+    const technology = renewableTechnologyLabel(properties.technology);
+    const capacity = numericValue(properties, ["capacity_mw"], 0);
+    const operator = textValue(properties, ["operator"], "").trim();
+    const operatorDetail = operator ? ` · ${escapeHtml(operator)}` : "";
+    layer.bindTooltip(
+      `<strong>${escapeHtml(technology)}</strong><span>${formatNumber(capacity)} MW${operatorDetail}</span>`,
+      { className: "renewable-tooltip", direction: "top", sticky: true }
+    );
+    layer.bindPopup(`
+      <div class="station-popup renewable-popup">
+        <h3>${escapeHtml(technology)}</h3>
+        <p><strong>Installed capacity:</strong> ${formatNumber(capacity)} MW</p>
+        ${operator ? `<p><strong>Operator:</strong> ${escapeHtml(operator)}</p>` : ""}
+        <p><strong>Status:</strong> ${escapeHtml(textValue(properties, ["status"], "not available"))}</p>
+        <p><strong>Energy carrier:</strong> ${escapeHtml(textValue(properties, ["asset_type"], technology))}</p>
+      </div>
+    `);
+  }
+});
+
+function refreshAutobahns(): void {
+  const visibleAutobahns = selectAutobahnFeaturesForZoom(autobahnFeatures.features, map.getZoom());
+  const visibleCollection = {
+    type: "FeatureCollection",
+    features: visibleAutobahns
+  } as FeatureCollection<RoadProperties>;
+  autobahnCasingLayer.clearLayers();
+  autobahnLineLayer.clearLayers();
+  autobahnCasingLayer.addData(visibleCollection);
+  autobahnLineLayer.addData(visibleCollection);
+}
+
+function refreshRenewableAssets(): void {
+  const activeAssets = renewableAssets.features.filter((feature) => {
+    const status = feature.properties?.status?.trim();
+    return isDisplayedRenewableTechnology(feature.properties?.technology)
+      && (!status || status === "In Betrieb");
+  });
+  const visibleAssets = selectRenewableFeaturesForZoom(activeAssets, map.getZoom());
+  renewableAssetLayer.clearLayers();
+  renewableAssetLayer.addData({
+    type: "FeatureCollection",
+    features: visibleAssets
+  } as FeatureCollection<RenewableProperties>);
+}
+
+function refreshZoomLayers(): void {
+  refreshOfficialStations();
+  refreshAutobahns();
+  refreshRenewableAssets();
+  restoreOverlayOrder();
+}
+
+map.on("zoomend", refreshZoomLayers);
+
 const proposedStationLayer = L.geoJSON(undefined, {
   pane: "proposedStations",
   pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
     pane: "proposedStations",
     radius: 6,
-    color: "#f4f1ff",
+    color: "#fff1f2",
     weight: 1.5,
-    fillColor: "#8b4dff",
+    fillColor: "#db2777",
     fillOpacity: 0.92
   }),
   onEachFeature: (feature, layer) => {
@@ -313,6 +401,7 @@ L.control
     {
       "Proposed charging stations": proposedStationLayer,
       "Official charging stations": stationLayer,
+      "Solar and wind energy": renewableAssetLayer,
       "Autobahns": autobahnLayer,
       "Federal and state roads": regionalRoadLayer,
       "NRW district indicators": regionLayer
@@ -320,6 +409,23 @@ L.control
     { collapsed: false }
   )
   .addTo(map);
+
+const renewableLegend = new L.Control({ position: "bottomright" });
+renewableLegend.onAdd = () => {
+  const container = L.DomUtil.create("div", "renewable-legend");
+  container.setAttribute("aria-label", "Renewable energy technology legend");
+  container.innerHTML = `<strong>Renewable energy</strong>${RENEWABLE_LEGEND_ITEMS
+    .map(({ label, color }) => `<span><i style="background:${color}"></i>${escapeHtml(label)}</span>`)
+    .join("")}`;
+  L.DomEvent.disableClickPropagation(container);
+  return container;
+};
+
+map.on("overlayadd overlayremove", (event: L.LayersControlEvent) => {
+  if (event.layer !== renewableAssetLayer) return;
+  if (map.hasLayer(renewableAssetLayer)) renewableLegend.addTo(map);
+  else renewableLegend.remove();
+});
 
 function setText(id: string, value: string | number): void {
   const element = document.getElementById(id);
@@ -426,6 +532,7 @@ function restoreOverlayOrder(): void {
   regionalRoadLayer.bringToFront();
   autobahnCasingLayer.bringToFront();
   autobahnLineLayer.bringToFront();
+  renewableAssetLayer.bringToFront();
   stationLayer.bringToFront();
   proposedStationLayer.bringToFront();
 }
@@ -728,7 +835,7 @@ map.on("click", (event) => {
 async function boot(): Promise<void> {
   renderRegionDetail(null);
 
-  const [regionsResult, stationsResult] = await Promise.all([
+  const [regionsResult, stationsResult, renewableResult] = await Promise.all([
     loadGeoJsonWithFallback<RegionProperties>(
       geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer),
       "data/nrw_regions_sample.geojson"
@@ -736,6 +843,10 @@ async function boot(): Promise<void> {
     loadGeoJsonWithFallback<StationProperties>(
       geoserverWfsUrl(runtimeConfig.geonodeStationsLayer),
       "data/nrw_charging_stations_sample.geojson"
+    ),
+    loadGeoJsonWithFallback<RenewableProperties>(
+      geoserverWfsUrl(runtimeConfig.renewableAssetsLayer),
+      "data/nrw_renewable_assets_sample.geojson"
     )
   ]);
 
@@ -743,30 +854,39 @@ async function boot(): Promise<void> {
   const stations = stationsResult.data;
 
   const roadResults = await Promise.allSettled([
-    fetchGeoJson<RoadProperties>(geoserverWfsUrl(runtimeConfig.regionalRoadsLayer)),
-    fetchGeoJson<RoadProperties>(geoserverWfsUrl(runtimeConfig.autobahnsLayer))
+    loadGeoJsonWithFallback<RoadProperties>(
+      geoserverWfsUrl(runtimeConfig.regionalRoadsLayer),
+      "data/nrw_regional_roads_sample.geojson"
+    ),
+    loadGeoJsonWithFallback<RoadProperties>(
+      geoserverWfsUrl(runtimeConfig.autobahnsLayer),
+      "data/nrw_autobahns_sample.geojson"
+    )
   ]);
-  if (roadResults[0].status === "fulfilled") regionalRoadLayer.addData(roadResults[0].value);
+  if (roadResults[0].status === "fulfilled") regionalRoadLayer.addData(roadResults[0].value.data);
   if (roadResults[1].status === "fulfilled") {
-    autobahnCasingLayer.addData(roadResults[1].value);
-    autobahnLineLayer.addData(roadResults[1].value);
+    autobahnFeatures = roadResults[1].value.data;
   }
 
   regionFeatures = regions.features as Feature<RegionProperties>[];
   officialStations = stations;
-  stationLayer.addData(officialStations);
+  renewableAssets = renewableResult.data;
+  refreshZoomLayers();
   restoreOverlayOrder();
   renderAnalytics();
   renderProposedStations();
-  const connectedSourceCount = [regionsResult.source, stationsResult.source]
+  const connectedSourceCount = [regionsResult.source, stationsResult.source, renewableResult.source]
     .filter((source) => source.startsWith("GeoNode")).length;
   setHeaderStatus(connectedSourceCount > 0 ? "GeoNode WFS connected" : "Local GeoJSON fallback");
   const note = document.querySelector(".map-note");
   if (note) {
-    note.textContent =
-      regionsResult.source.startsWith("GeoNode") || stationsResult.source.startsWith("GeoNode")
+    const sourceNote =
+      regionsResult.source.startsWith("GeoNode")
+        || stationsResult.source.startsWith("GeoNode")
+        || renewableResult.source.startsWith("GeoNode")
         ? "GeoNode-connected map: district indicators, charging stations and available road layers are served from PostGIS through GeoServer WFS."
         : "Local-first preview: GeoNode is offline, so the dashboard is using the checked-in NRW GeoJSON snapshot.";
+    note.textContent = `${sourceNote} Charging stations, solar assets and wind assets are thinned at wider views; zoom in to reveal more.`;
   }
   map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });
   try {

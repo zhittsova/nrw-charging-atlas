@@ -84,6 +84,8 @@ def read_renewables(path: Path) -> list[dict]:
                 rows.append(
                     {
                         "source_id": f"{layer}|{record['Einheitennummer']}",
+                        "name": record.get("Name der Einheit"),
+                        "operator": record.get("Anlagenbetreiber"),
                         "asset_type": record.get("Energieträger"),
                         "technology": layer,
                         "capacity_mw": float(capacity_kw) / 1000 if pd.notna(capacity_kw) else None,
@@ -106,7 +108,10 @@ def build_import_script(plants: list[dict], roads: list[dict], renewables: list[
         "source_id", "road_class", "name", "road_number", "traffic_total",
         "traffic_light", "traffic_heavy", "source", "geom_json",
     )
-    renewable_cols = ("source_id", "asset_type", "technology", "capacity_mw", "status", "geom_json")
+    renewable_cols = (
+        "source_id", "name", "operator", "asset_type", "technology",
+        "capacity_mw", "status", "geom_json",
+    )
     return f"""BEGIN;
 CREATE TEMP TABLE import_power_plants (
   source_id text, name text, operator text, energy_source text, technology text,
@@ -117,7 +122,8 @@ CREATE TEMP TABLE import_roads (
   traffic_light numeric, traffic_heavy numeric, source text, geom_json text
 ) ON COMMIT DROP;
 CREATE TEMP TABLE import_renewables (
-  source_id text, asset_type text, technology text, capacity_mw numeric, status text, geom_json text
+  source_id text, name text, operator text, asset_type text, technology text,
+  capacity_mw numeric, status text, geom_json text
 ) ON COMMIT DROP;
 {_copy_block("import_power_plants", plant_cols, plants)}
 {_copy_block("import_roads", road_cols, roads)}
@@ -132,8 +138,9 @@ INSERT INTO raw.roads (osm_id, road_class, name, road_number, traffic_total, tra
 SELECT source_id, road_class, name, road_number, traffic_total, traffic_light, traffic_heavy, source,
        ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326)::geometry(LineString,4326)
 FROM import_roads;
-INSERT INTO raw.renewable_assets (source_id, asset_type, technology, capacity_mw, status, geom)
-SELECT source_id, asset_type, technology, capacity_mw, status,
+INSERT INTO raw.renewable_assets
+  (source_id, name, operator, asset_type, technology, capacity_mw, status, geom)
+SELECT source_id, name, operator, asset_type, technology, capacity_mw, status,
        ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326)::geometry(Point,4326)
 FROM import_renewables;
 COMMIT;

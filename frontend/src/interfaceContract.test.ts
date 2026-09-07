@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import html from "../index.html?raw";
+import mainSource from "./main.ts?raw";
 
 
 describe("dashboard information architecture", () => {
@@ -22,6 +23,21 @@ describe("dashboard information architecture", () => {
     expect(html).toContain('id="scenario-add-button"');
     expect(html).toContain('id="map-add-station"');
     expect(html).toContain("Add proposed station");
+  });
+
+  it("provides local fallbacks for both road overlays", () => {
+    expect(mainSource).toContain("data/nrw_autobahns_sample.geojson");
+    expect(mainSource).toContain("data/nrw_regional_roads_sample.geojson");
+    expect(mainSource).toContain('"Autobahns": autobahnLayer');
+    expect(mainSource).toContain('"Federal and state roads": regionalRoadLayer');
+  });
+
+  it("provides a renewable-energy overlay with a local fallback", () => {
+    expect(html).toContain('renewableAssetsLayer: "nrw:nrw_renewable_potential"');
+    expect(mainSource).toContain("data/nrw_renewable_assets_sample.geojson");
+    expect(mainSource).toContain('"Solar and wind energy": renewableAssetLayer');
+    expect(mainSource).toContain("Installed capacity:");
+    expect(mainSource).toContain("<strong>Operator:</strong>");
   });
 
   it("explains every composite indicator and its weights", () => {

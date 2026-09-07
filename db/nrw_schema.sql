@@ -162,12 +162,17 @@ CREATE INDEX IF NOT EXISTS raw_grid_geom_gix
 
 CREATE TABLE IF NOT EXISTS raw.renewable_assets (
     source_id text,
+    name text,
+    operator text,
     asset_type text,
     technology text,
     capacity_mw numeric,
     status text,
     geom geometry(Point, 4326)
 );
+
+ALTER TABLE raw.renewable_assets ADD COLUMN IF NOT EXISTS name text;
+ALTER TABLE raw.renewable_assets ADD COLUMN IF NOT EXISTS operator text;
 
 CREATE TABLE IF NOT EXISTS raw.power_plants (
     source_id text PRIMARY KEY,
