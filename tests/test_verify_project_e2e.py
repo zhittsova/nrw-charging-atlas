@@ -20,6 +20,7 @@ class ProjectEndToEndVerifierTest(unittest.TestCase):
 
         self.assertIn("Research &amp; Development &lt;NRW&gt;", document)
         self.assertIn("<nrw:proposed_chargers>", document)
+        self.assertIn("<nrw:max_point_power_kw>150</nrw:max_point_power_kw>", document)
         self.assertIn("<gml:pos>6.7735 51.2277</gml:pos>", document)
 
     def test_delete_targets_only_the_created_uuid(self) -> None:

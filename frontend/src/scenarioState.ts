@@ -12,6 +12,7 @@ const CANONICAL_METRICS = [
   "charging_points_total",
   "fast_chargers_total",
   "normal_chargers_total",
+  "unknown_power_chargers_total",
   "chargers_per_km2",
   "charging_points_per_100k_population",
   "distance_to_nearest_charger_m",

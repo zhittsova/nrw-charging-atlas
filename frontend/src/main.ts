@@ -72,6 +72,7 @@ type StationProperties = {
   region?: string;
   state?: string;
   power_kw?: number;
+  max_point_power_kw?: number;
   charging_points?: number;
   connectors?: number;
   status?: string;
@@ -206,8 +207,8 @@ const stationLayer = L.geoJSON(undefined, {
   pane: "stations",
   pointToLayer: (feature, latlng) => {
     const p = feature.properties as StationProperties;
-    const power = numericValue(p, ["power_kw"], 22);
-    return L.circleMarker(latlng, officialStationStyle(power, map.getZoom()));
+    const maxPointPower = numericValue(p, ["max_point_power_kw"], 0);
+    return L.circleMarker(latlng, officialStationStyle(maxPointPower, map.getZoom()));
   },
   onEachFeature: (feature, layer) => {
     const p = feature.properties as StationProperties;

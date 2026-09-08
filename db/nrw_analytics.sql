@@ -473,6 +473,7 @@ SELECT
     m.charging_points_total,
     m.fast_chargers_total,
     m.normal_chargers_total,
+    m.unknown_power_chargers_total,
     m.chargers_total / NULLIF(m.area_km2, 0) AS chargers_per_km2,
     m.charging_points_total * 100000.0 / NULLIF(m.population, 0)
         AS charging_points_per_100k_population,
@@ -572,12 +573,14 @@ WITH effective_chargers AS (
     SELECT
         c.charging_points,
         c.power_kw,
+        c.max_point_power_kw,
         c.geom
     FROM raw.chargers c
     UNION ALL
     SELECT
         p.charging_points,
         p.power_kw,
+        p.max_point_power_kw,
         p.geom
     FROM scenario.proposed_chargers p
 ),
@@ -593,10 +596,12 @@ scenario_raw AS (
             SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.geom IS NOT NULL),
             0
         ) AS charging_points_total,
-        COUNT(c.geom) FILTER (WHERE COALESCE(c.power_kw, 0) >= 50)
+        COUNT(c.geom) FILTER (WHERE c.max_point_power_kw >= 50)
             AS fast_chargers_total,
-        COUNT(c.geom) FILTER (WHERE COALESCE(c.power_kw, 0) < 50)
+        COUNT(c.geom) FILTER (WHERE c.max_point_power_kw < 50)
             AS normal_chargers_total,
+        COUNT(c.geom) FILTER (WHERE c.max_point_power_kw IS NULL)
+            AS unknown_power_chargers_total,
         COUNT(c.geom) / NULLIF(m.area_km2, 0) AS chargers_per_km2,
         COALESCE(
             SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.geom IS NOT NULL),
@@ -716,6 +721,10 @@ SELECT
     b.normal_chargers_total AS baseline_normal_chargers_total,
     s.normal_chargers_total AS scenario_normal_chargers_total,
     s.normal_chargers_total - b.normal_chargers_total AS normal_chargers_total_delta,
+    b.unknown_power_chargers_total AS baseline_unknown_power_chargers_total,
+    s.unknown_power_chargers_total AS scenario_unknown_power_chargers_total,
+    s.unknown_power_chargers_total - b.unknown_power_chargers_total
+        AS unknown_power_chargers_total_delta,
     b.chargers_per_km2 AS baseline_chargers_per_km2,
     s.chargers_per_km2 AS scenario_chargers_per_km2,
     s.chargers_per_km2 - b.chargers_per_km2 AS chargers_per_km2_delta,

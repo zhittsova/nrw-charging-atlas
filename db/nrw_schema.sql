@@ -12,7 +12,12 @@ CREATE TABLE IF NOT EXISTS raw.chargers (
     status text,
     charger_type text,
     charging_points integer,
+    -- Aggregate station nominal power as supplied by BNetzA.  This is not a
+    -- per-connector classification value.
     power_kw numeric,
+    -- Measured maximum of the valid BNetzA connector nominal-power fields.
+    -- NULL is an explicit unknown, not a value inferred from power_kw.
+    max_point_power_kw numeric,
     street text,
     postcode text,
     city text,
@@ -20,6 +25,11 @@ CREATE TABLE IF NOT EXISTS raw.chargers (
     bundesland text,
     geom geometry(Point, 4326) NOT NULL
 );
+
+-- Keep existing source rows compatible while introducing the measured
+-- connector maximum.  In particular, never manufacture this value from the
+-- aggregate station power or number of charging points.
+ALTER TABLE raw.chargers ADD COLUMN IF NOT EXISTS max_point_power_kw numeric;
 
 CREATE TABLE IF NOT EXISTS raw.admin_regions (
     nuts_code text NOT NULL,
@@ -43,6 +53,9 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
     name text NOT NULL,
     charging_points integer NOT NULL,
     power_kw numeric NOT NULL,
+    -- Nullable for proposals that existed before the maximum-point-power
+    -- contract.  The trigger below requires it for new inserts.
+    max_point_power_kw numeric,
     nuts_code text NOT NULL,
     status text NOT NULL DEFAULT 'proposed',
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -56,6 +69,32 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
     CONSTRAINT proposed_chargers_status_check
         CHECK (status = 'proposed')
 );
+
+ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS max_point_power_kw numeric;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'proposed_chargers_max_point_power_kw_check'
+          AND conrelid = 'scenario.proposed_chargers'::regclass
+    ) THEN
+        ALTER TABLE scenario.proposed_chargers
+            ADD CONSTRAINT proposed_chargers_max_point_power_kw_check
+            CHECK (
+                max_point_power_kw IS NULL
+                OR (
+                    max_point_power_kw > 0
+                    AND max_point_power_kw <> 'Infinity'::numeric
+                    AND max_point_power_kw <> '-Infinity'::numeric
+                    AND max_point_power_kw <> 'NaN'::numeric
+                    AND max_point_power_kw <= power_kw
+                )
+            );
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS proposed_chargers_geom_gix
     ON scenario.proposed_chargers USING gist (geom);
@@ -75,6 +114,23 @@ BEGIN
     NEW.name := btrim(NEW.name);
     IF NEW.name = '' THEN
         RAISE EXCEPTION 'Proposed charger name must not be empty';
+    END IF;
+
+    -- Existing proposals intentionally retain NULL after migration.  A new
+    -- proposal must explicitly provide a finite, positive connector maximum
+    -- no greater than its aggregate station power.
+    IF TG_OP = 'INSERT' AND NEW.max_point_power_kw IS NULL THEN
+        RAISE EXCEPTION 'New proposed charger requires max_point_power_kw';
+    END IF;
+
+    IF NEW.max_point_power_kw IS NOT NULL
+       AND (
+           NEW.max_point_power_kw <= 0
+           OR NEW.max_point_power_kw IN ('Infinity'::numeric, '-Infinity'::numeric, 'NaN'::numeric)
+           OR NEW.max_point_power_kw > NEW.power_kw
+       )
+    THEN
+        RAISE EXCEPTION 'Proposed charger max_point_power_kw must be finite, positive, and no greater than power_kw';
     END IF;
 
     IF ST_IsEmpty(NEW.geom)
@@ -275,8 +331,9 @@ SELECT
         SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.source_id IS NOT NULL),
         0
     ) AS charging_points_total,
-    COUNT(c.source_id) FILTER (WHERE COALESCE(c.power_kw, 0) >= 50) AS fast_chargers_total,
-    COUNT(c.source_id) FILTER (WHERE COALESCE(c.power_kw, 0) < 50) AS normal_chargers_total,
+    COUNT(c.source_id) FILTER (WHERE c.max_point_power_kw >= 50) AS fast_chargers_total,
+    COUNT(c.source_id) FILTER (WHERE c.max_point_power_kw < 50) AS normal_chargers_total,
+    COUNT(c.source_id) FILTER (WHERE c.max_point_power_kw IS NULL) AS unknown_power_chargers_total,
     nearest.distance_to_nearest_charger_m,
     d.geom
 FROM staging.nrw_districts d

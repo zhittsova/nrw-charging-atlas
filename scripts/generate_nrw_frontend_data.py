@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import tempfile
 from pathlib import Path
 
@@ -12,9 +13,34 @@ from nrw_charger_quality import EXCEPTION_FIELDS, assert_reconciled, classify_ch
 
 def parse_decimal(value: str) -> float | None:
     try:
-        return float(value.replace(",", "."))
+        parsed = float(value.replace(",", "."))
     except (TypeError, ValueError, AttributeError):
         return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def max_point_power_kw(row: dict[str, str]) -> float | None:
+    """Return the measured maximum valid BNetzA connector nominal power.
+
+    Aggregate station power is intentionally not a fallback: a missing
+    connector reading remains an unknown maximum-point-power classification.
+    """
+    values = [
+        parse_decimal(row.get(f"Nennleistung Stecker{index}", row.get(f"Nennleistung Stecker{index} [kW]", "")))
+        for index in range(1, 7)
+    ]
+    valid_values = [value for value in values if value is not None and value > 0]
+    return max(valid_values, default=None)
+
+
+def classify_power(maximum_kw: float | None) -> str | None:
+    if maximum_kw is None:
+        return None
+    return "fast" if maximum_kw >= 50 else "normal"
+
+
+def is_fast_power(maximum_kw: float | None) -> bool:
+    return classify_power(maximum_kw) == "fast"
 
 
 def feature_bbox(feature: dict) -> tuple[float, float, float, float]:
@@ -90,6 +116,7 @@ def load_nrw_chargers(config: dict[str, object]) -> list[dict]:
         lon = parse_decimal(row.get("Längengrad", ""))
         lat = parse_decimal(row.get("Breitengrad", ""))
         power = parse_decimal(row.get("Nennleistung Ladeeinrichtung [kW]", ""))
+        maximum_power = max_point_power_kw(row)
         charging_points = int(parse_decimal(row.get("Anzahl Ladepunkte", "")) or 1)
         features.append(
             {
@@ -103,6 +130,7 @@ def load_nrw_chargers(config: dict[str, object]) -> list[dict]:
                     "charging_points": charging_points,
                     "connectors": charging_points,
                     "power_kw": power,
+                    "max_point_power_kw": maximum_power,
                     "district_text": row.get("Kreis/kreisfreie Stadt"),
                     "region": config["region_name"],
                     "state": config["region_name"],
@@ -117,13 +145,20 @@ def enrich_regions_with_counts(regions: list[dict], chargers: list[dict]) -> lis
     counts = {region["properties"]["nuts_code"]: 0 for region in regions}
     points = {region["properties"]["nuts_code"]: 0 for region in regions}
     fast = {region["properties"]["nuts_code"]: 0 for region in regions}
+    normal = {region["properties"]["nuts_code"]: 0 for region in regions}
+    unknown = {region["properties"]["nuts_code"]: 0 for region in regions}
 
     for charger in chargers:
         nuts_code = charger["properties"]["nuts_code"]
         counts[nuts_code] += 1
         points[nuts_code] += int(charger["properties"].get("charging_points") or 1)
-        if float(charger["properties"].get("power_kw") or 0) >= 50:
+        classification = classify_power(charger["properties"].get("max_point_power_kw"))
+        if classification == "fast":
             fast[nuts_code] += 1
+        elif classification == "normal":
+            normal[nuts_code] += 1
+        else:
+            unknown[nuts_code] += 1
 
     max_count = max(counts.values()) or 1
     for region in regions:
@@ -136,8 +171,10 @@ def enrich_regions_with_counts(regions: list[dict], chargers: list[dict]) -> lis
             charging_points_total=points[nuts_code],
             fast_chargers=fast[nuts_code],
             fast_chargers_total=fast[nuts_code],
-            normal_chargers=max(counts[nuts_code] - fast[nuts_code], 0),
-            normal_chargers_total=max(counts[nuts_code] - fast[nuts_code], 0),
+            normal_chargers=normal[nuts_code],
+            normal_chargers_total=normal[nuts_code],
+            unknown_power_chargers=unknown[nuts_code],
+            unknown_power_chargers_total=unknown[nuts_code],
             chargingSupplyScore=supply_score,
             charging_supply_score=supply_score,
             demandScore=None,

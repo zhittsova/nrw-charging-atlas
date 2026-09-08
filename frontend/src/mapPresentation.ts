@@ -85,6 +85,7 @@ export function selectAutobahnFeaturesForZoom<T extends AutobahnFeature>(
 type PrioritizableStationProperties = {
   id?: string;
   power_kw?: number;
+  max_point_power_kw?: number;
   charging_points?: number;
   connectors?: number;
   [key: string]: unknown;
@@ -281,8 +282,8 @@ export function scoreColor(
   return "#eff3ff";
 }
 
-export function officialStationStyle(powerKw: number, zoom = 9) {
-  const highPower = powerKw >= 150;
+export function officialStationStyle(maxPointPowerKw: number, zoom = 9) {
+  const highPower = maxPointPowerKw >= 150;
   const scale = zoom <= 7 ? 0.52 : zoom === 8 ? 0.72 : 1;
   return {
     pane: "stations",
