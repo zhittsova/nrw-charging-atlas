@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from run_postgis_tests import psql_connection, require_disposable_database_url  # noqa: E402
+
+
 DATABASE_URL = os.environ.get("SCENARIO_TEST_DATABASE_URL")
 
 
@@ -14,6 +19,13 @@ DATABASE_URL = os.environ.get("SCENARIO_TEST_DATABASE_URL")
 class ProposedChargerDatabaseTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        assert DATABASE_URL is not None
+        run_id = os.environ.get("SCENARIO_TEST_RUN_ID")
+        endpoint = os.environ.get("SCENARIO_TEST_ENDPOINT")
+        require_disposable_database_url(DATABASE_URL, run_id=run_id, endpoint=endpoint)
+        cls.psql_base, cls.psql_environment = psql_connection(
+            DATABASE_URL, run_id=run_id, endpoint=endpoint
+        )
         cls.psql(
             "DROP SCHEMA IF EXISTS publish CASCADE;"
             "DROP SCHEMA IF EXISTS analytics CASCADE;"
@@ -57,22 +69,29 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
 
     @classmethod
     def psql(cls, sql: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["psql", DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-qAt"],
+        result = subprocess.run(
+            cls.psql_base,
             input=sql,
             text=True,
             capture_output=True,
-            check=check,
+            check=False,
+            env=cls.psql_environment,
         )
+        if check and result.returncode:
+            raise RuntimeError(result.stderr or result.stdout or "psql failed")
+        return result
 
     @classmethod
     def psql_file(cls, path: Path) -> None:
-        subprocess.run(
-            ["psql", DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-f", str(path)],
+        result = subprocess.run(
+            [*cls.psql_base, "-f", str(path)],
             text=True,
             capture_output=True,
-            check=True,
+            check=False,
+            env=cls.psql_environment,
         )
+        if result.returncode:
+            raise RuntimeError(result.stderr or result.stdout or "psql file failed")
 
     def test_valid_insert_normalizes_name_and_assigns_covering_district(self) -> None:
         result = self.psql(

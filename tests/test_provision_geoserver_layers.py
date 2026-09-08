@@ -147,7 +147,17 @@ class GeoServerProvisioningTest(unittest.TestCase):
         self.assertEqual(provision.call_args.args[1].database_name, "nrw_from_cli")
 
     def test_empty_explicit_database_name_fails_before_publication(self) -> None:
+        values = {
+            "GEOSERVER_ADMIN_USER": "admin",
+            "GEOSERVER_ADMIN_PASSWORD": "secret",
+            "NRW_GEOSERVER_READ_USER": "reader",
+            "NRW_GEOSERVER_READ_PASSWORD": "reader-secret",
+            "NRW_GEOSERVER_SCENARIO_USER": "writer",
+            "NRW_GEOSERVER_SCENARIO_PASSWORD": "writer-secret",
+        }
         with (
+            patch.dict(os.environ, values, clear=True),
+            patch.object(module, "read_env", return_value={}),
             patch.object(module, "provision_geoserver") as provision,
             patch.object(sys, "argv", ["provision_geoserver_layers.py", "--database-name", ""]),
         ):

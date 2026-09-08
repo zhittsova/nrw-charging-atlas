@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Geospatial EV Charging Infrastructure Intelligence Platform for NRW</title>
+    <title>EV charging in North Rhine-Westphalia</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="./style.css">
     <script>
@@ -27,135 +27,33 @@
       <main class="app-main">
         <header class="app-header">
           <div>
-            <p class="eyebrow">NRW Energy Infrastructure Intelligence</p>
-            <h1>Geospatial EV Charging Infrastructure Intelligence Platform for NRW</h1>
+            <p class="eyebrow">Regional infrastructure study</p>
+            <h1>EV charging in North Rhine-Westphalia</h1>
           </div>
           <div class="header-status">
             <span class="status-dot"></span>
-            Local-first TypeScript MVP
+            Loading data…
           </div>
         </header>
 
-        <section class="kpi-grid" aria-label="Key indicators">
-          <article class="kpi-card kpi-green">
-            <div class="kpi-icon">EV</div>
-            <div>
-              <span>Total NRW stations</span>
-              <strong id="kpi-total-stations">-</strong>
-            </div>
-          </article>
-          <article class="kpi-card kpi-blue">
-            <div class="kpi-icon">D</div>
-            <div>
-              <span>Avg EV readiness</span>
-              <strong id="kpi-average-density">-</strong>
-            </div>
-          </article>
-          <article class="kpi-card kpi-purple">
-            <div class="kpi-icon">RDY</div>
-            <div>
-              <span>Best EV readiness</span>
-              <strong id="kpi-best-region">-</strong>
-            </div>
-          </article>
-          <article class="kpi-card kpi-amber">
-            <div class="kpi-icon">GAP</div>
-            <div>
-              <span>Most underserved</span>
-              <strong id="kpi-underserved-region">-</strong>
-            </div>
-          </article>
-          <article class="kpi-card kpi-teal">
-            <div class="kpi-icon">PRI</div>
-            <div>
-              <span>Highest priority</span>
-              <strong id="kpi-priority-region">-</strong>
-            </div>
-          </article>
+        <section class="project-intro" aria-labelledby="project-purpose">
+          <h2 id="project-purpose">Where does NRW need more EV charging?</h2>
+          <p>This project compares 53 districts in North Rhine-Westphalia to identify gaps in public charging, shortlist areas for new stations, and assess relative readiness for further electrification.</p>
+          <p>We compare charging supply with population and accessibility, then consider traffic, mapped electricity infrastructure and renewable energy. Select a question below, explore the map and ranking, and test a proposed station.</p>
+          <div class="intro-facts">
+            <p><strong>Measures</strong><br>EV Readiness combines density (40%), accessibility (30%) and population-adjusted coverage (30%). Investment Priority combines charging deficit (60%) with infrastructure opportunity (40%).</p>
+            <p><strong>Sources</strong><br>Bundesnetzagentur charging stations; Eurostat population and boundaries; Straßen.NRW traffic; Energieatlas NRW energy data; OpenStreetMap grid and road data. <a href="#methods">See indicator formulas</a>.</p>
+          </div>
+          <p class="planning-limit">These are comparative screening scores, not forecasts or approved construction sites. Exact locations need checks for demand, land access and grid connection. Accessibility is a distance proxy, not a driving-time measurement.</p>
         </section>
 
-        <section class="command-grid">
-          <aside class="left-stack" aria-label="Datasets, filters, and metadata">
-            <section class="panel control-panel">
-              <h2>Scoring Controls</h2>
-              <label class="field-label" for="score-mode">Choropleth indicator</label>
-              <select id="score-mode" class="select-input">
-                <option value="investmentPriorityScore">Investment Priority</option>
-                <option value="evReadinessScore">EV Readiness</option>
-                <option value="chargerDeficitScore">Charger Deficit</option>
-                <option value="infrastructureOpportunityScore">Infrastructure Opportunity</option>
-              </select>
-              <div class="scenario-controls">
-                <span class="field-label">Comparison view</span>
-                <div class="scenario-mode-switch" role="group" aria-label="Scenario comparison view">
-                  <button type="button" class="active" data-scenario-mode="baseline">Baseline</button>
-                  <button type="button" data-scenario-mode="scenario">Scenario</button>
-                  <button type="button" data-scenario-mode="change">Change</button>
-                </div>
-                <div class="scenario-layer-toggles">
-                  <label><input id="official-layer-toggle" type="checkbox" checked> Official stations</label>
-                  <label><input id="scenario-layer-toggle" type="checkbox" checked> Proposed stations</label>
-                </div>
-                <div class="scenario-actions">
-                  <button id="scenario-add-button" class="primary-action" type="button">Add proposed station</button>
-                  <button id="scenario-reset-button" class="secondary-action" type="button">Reset</button>
-                </div>
-                <p id="scenario-status" class="scenario-status" aria-live="polite">Scenario data is loading…</p>
-              </div>
-            </section>
-
-          </aside>
-
-          <section class="map-shell">
-            <div class="map-toolbar" aria-label="Map tools">
-              <button id="map-add-station" type="button" title="Add a proposed charging station">Add station</button>
-            </div>
-            <div id="map" aria-label="Leaflet map of NRW energy infrastructure intelligence"></div>
-            <div class="map-note">
-              NRW case study: 53 NUTS-3 districts, official BNetzA chargers and editable local planning scenarios recalculated in PostGIS.
-            </div>
-          </section>
-
-          <aside class="right-stack" aria-label="Region analytics">
-            <section class="panel rankings-panel">
-              <div class="panel-heading">
-                <h2>Regional Rankings</h2>
-                <span>Top 10</span>
-              </div>
-              <div class="ranking-tabs" role="tablist" aria-label="Ranking type">
-                <button class="ranking-tab active" type="button" data-ranking="investmentPriorityScore">Priority</button>
-                <button class="ranking-tab" type="button" data-ranking="evReadinessScore">Readiness</button>
-                <button class="ranking-tab" type="button" data-ranking="chargerDeficitScore">Gap</button>
-                <button class="ranking-tab" type="button" data-ranking="infrastructureOpportunityScore">Infra</button>
-              </div>
-              <ol id="ranking-list" class="ranking-list"></ol>
-            </section>
-
-            <section class="panel region-panel">
-              <div class="panel-heading">
-                <h2>Region Detail</h2>
-                <span>Decision card</span>
-              </div>
-              <div id="region-detail" class="region-detail"></div>
-            </section>
-
-            <section class="panel scenario-list-panel" aria-label="Proposed charging stations">
-              <div class="panel-heading">
-                <h2>Proposed Stations</h2>
-                <span id="scenario-station-count">0 stations</span>
-              </div>
-              <div id="scenario-station-list" class="scenario-station-list"></div>
-            </section>
-          </aside>
-        </section>
-
-        <section class="information-grid" aria-label="Methodology and data sources">
+        <section id="methods" class="visible-methods" aria-label="Indicator formulas">
           <article class="panel methodology-panel">
             <div class="panel-heading">
               <h2>How the indicators are calculated</h2>
-              <span>0–100 screening scores</span>
+              <a href="#sources">All data sources</a>
             </div>
-            <p class="method-intro">Input values are normalized against fixed baseline 5th and 95th percentile bounds, then combined using the weights below. Scenario stations change district values without moving the baseline comparison scale.</p>
+            <p class="method-intro">The canonical PostGIS calculation normalizes input values against fixed baseline 5th and 95th percentile bounds, and combines them using the weights below. Local fallback scores may use a simplified calculation; check the data notice above the map. Scenario stations change district values without moving the baseline comparison scale.</p>
             <div class="methodology-list">
               <section>
                 <h3>EV Readiness</h3>
@@ -184,8 +82,131 @@
               </section>
             </div>
           </article>
+        </section>
 
-          <article class="panel sources-panel">
+        <section class="question-section" aria-labelledby="question-heading">
+          <h2 id="question-heading">1. Choose a question</h2>
+          <div class="question-list" role="group" aria-label="Planning question">
+            <button type="button" data-question="chargerDeficitScore" aria-pressed="false"><strong>Which districts are underserved?</strong><span>Compare the charging gap relative to population and accessibility.</span></button>
+            <button type="button" data-question="investmentPriorityScore" aria-pressed="true"><strong>Where should new stations be considered?</strong><span>Find priority districts, then explore possible locations on the map.</span></button>
+            <button type="button" data-question="evReadinessScore" aria-pressed="false"><strong>Which districts are best prepared?</strong><span>Compare present charging readiness for further electrification.</span></button>
+          </div>
+        </section>
+        <div class="workspace-heading"><h2>2. Compare districts</h2><p id="question-explanation" aria-live="polite">Higher Investment Priority means a district merits closer review for new charging stations.</p></div>
+        <p id="data-quality-note" class="data-quality-note" role="status">Checking the available district data…</p>
+        <section class="kpi-grid" aria-label="Key indicators">
+          <article class="kpi-card kpi-green">
+            <div>
+              <span>Total NRW stations</span>
+              <strong id="kpi-total-stations">-</strong>
+            </div>
+          </article>
+          <article class="kpi-card kpi-blue">
+            <div>
+              <span>Avg EV readiness</span>
+              <strong id="kpi-average-density">-</strong>
+            </div>
+          </article>
+          <article class="kpi-card kpi-purple">
+            <div>
+              <span>Best EV readiness</span>
+              <strong id="kpi-best-region">-</strong>
+            </div>
+          </article>
+          <article class="kpi-card kpi-amber">
+            <div>
+              <span>Most underserved</span>
+              <strong id="kpi-underserved-region">-</strong>
+            </div>
+          </article>
+          <article class="kpi-card kpi-teal">
+            <div>
+              <span>Highest priority</span>
+              <strong id="kpi-priority-region">-</strong>
+            </div>
+          </article>
+        </section>
+
+        <section class="command-grid">
+          <aside class="left-stack" aria-label="Datasets, filters, and metadata">
+            <section class="panel control-panel">
+              <h2>Map &amp; comparison</h2>
+              <label class="field-label" for="score-mode">Colour districts by</label>
+              <select id="score-mode" class="select-input">
+                <option value="investmentPriorityScore">Investment Priority</option>
+                <option value="evReadinessScore">EV Readiness</option>
+                <option value="chargerDeficitScore">Charger Deficit</option>
+                <option value="infrastructureOpportunityScore">Infrastructure Opportunity</option>
+              </select>
+              <div class="scenario-controls">
+                <span class="field-label">Comparison view</span>
+                <div class="scenario-mode-switch" role="group" aria-label="Scenario comparison view">
+                  <button type="button" class="active" data-scenario-mode="baseline">Current network</button>
+                  <button type="button" data-scenario-mode="scenario">With proposals</button>
+                  <button type="button" data-scenario-mode="change">Difference</button>
+                </div>
+                <div class="scenario-layer-toggles">
+                  <label><input id="official-layer-toggle" type="checkbox" checked> Official stations</label>
+                  <label><input id="scenario-layer-toggle" type="checkbox" checked> Proposed stations</label>
+                </div>
+                <h3>3. Test a proposed station</h3><p class="control-help">Choose “Add proposed station”, then click a location on the map. Compare the current network with your proposals.</p><div class="scenario-actions">
+                  <button id="scenario-add-button" class="primary-action" type="button">Add proposed station</button>
+                  <button id="scenario-reset-button" class="secondary-action" type="button">Clear proposals</button>
+                </div>
+                <p id="scenario-status" class="scenario-status" aria-live="polite">Scenario data is loading…</p>
+              </div>
+            </section>
+
+          </aside>
+
+          <section class="map-shell">
+            <div class="map-toolbar" aria-label="Map tools">
+              <button id="map-add-station" type="button" title="Add a proposed charging station">Add station</button>
+            </div>
+            <div id="district-legend" class="district-legend" aria-label="District colour scale"></div>
+            <div id="map" aria-label="Leaflet map of NRW energy infrastructure intelligence"></div>
+            <div class="map-note">
+              NRW case study: 53 NUTS-3 districts, official BNetzA chargers and editable local planning scenarios recalculated in PostGIS.
+            </div>
+          </section>
+
+          <aside class="right-stack" aria-label="Region analytics">
+            <section class="panel rankings-panel">
+              <div class="panel-heading">
+                <h2>District ranking</h2>
+                <span id="ranking-count">53 districts</span>
+              </div>
+              <div class="ranking-tabs" role="group" aria-label="Map and ranking indicator">
+                <button class="ranking-tab active" type="button" data-ranking="investmentPriorityScore">Priority</button>
+                <button class="ranking-tab" type="button" data-ranking="evReadinessScore">Readiness</button>
+                <button class="ranking-tab" type="button" data-ranking="chargerDeficitScore">Charging gap</button>
+                <button class="ranking-tab" type="button" data-ranking="infrastructureOpportunityScore">Infrastructure</button>
+              </div>
+              <p id="ranking-explanation" class="control-help">All districts, highest scores first. Scroll to see more; select a district for details.</p><ol id="ranking-list" class="ranking-list"></ol>
+            </section>
+
+            <section class="panel region-panel">
+              <div class="panel-heading">
+                <h2>Selected district</h2>
+                <span>Select a district</span>
+              </div>
+              <div id="region-detail" class="region-detail"></div>
+            </section>
+
+            <section class="panel scenario-list-panel" aria-label="Proposed charging stations">
+              <div class="panel-heading">
+                <h2>Proposed Stations</h2>
+                <span id="scenario-station-count">0 stations</span>
+              </div>
+              <div id="scenario-station-list" class="scenario-station-list"></div>
+            </section>
+          </aside>
+        </section>
+
+        <section class="information-grid" aria-label="Methodology and data sources">
+
+
+          <article id="sources" class="panel sources-panel">
             <div class="panel-heading">
               <h2>Data sources</h2>
               <span>Public data, no API keys</span>
@@ -199,7 +220,7 @@
               <li><strong>Energieatlas NRW</strong><span>Renewable sites, generation, capacity and electricity consumption.</span></li>
               <li><strong>OpenStreetMap / Geofabrik</strong><span>Autobahns and mapped grid lines, substations and transformers.</span></li>
             </ul>
-            <p class="source-note">Download URLs, licences, timestamps and checksums are recorded in the source catalogs and <code>data/raw/provenance/</code>.</p>
+            <p class="source-note">Available download and provenance records can be inspected in the source catalogs and <code>data/raw/provenance/</code>.</p>
           </article>
         </section>
       </main>

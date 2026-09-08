@@ -19,7 +19,7 @@ import {
 describe("map presentation", () => {
   it("uses a non-green purple-to-coral score palette", () => {
     expect([10, 40, 55, 70, 90].map((score) => scoreColor(score, "baseline", "evReadinessScore")))
-      .toEqual(["#6d28d9", "#3b82f6", "#06b6d4", "#eab308", "#f97316"]);
+      .toEqual(["#eff3ff", "#bdd7e7", "#6baed6", "#2171b5", "#084594"]);
   });
 
   it("uses blue-neutral-magenta semantics for scenario change", () => {
@@ -70,7 +70,7 @@ describe("map presentation", () => {
 
   it("encodes renewable technology with color and capacity with marker size", () => {
     expect(RENEWABLE_TECHNOLOGY_COLORS.Windenergie).toBe("#38bdf8");
-    expect(RENEWABLE_TECHNOLOGY_COLORS["Photovoltaik Bauliche"]).toBe("#facc15");
+    expect(RENEWABLE_TECHNOLOGY_COLORS["Photovoltaik Freifläche"]).toBe("#b77900");
     expect(RENEWABLE_LEGEND_ITEMS).toHaveLength(2);
     expect(renewableTechnologyLabel("Photovoltaik Bauliche")).toBe("Rooftop solar");
     expect(renewableAssetStyle("Windenergie", 50).radius)
@@ -79,6 +79,9 @@ describe("map presentation", () => {
     expect(isDisplayedRenewableTechnology("Windenergie")).toBe(true);
     expect(isDisplayedRenewableTechnology("Photovoltaik Freifläche")).toBe(true);
     expect(isDisplayedRenewableTechnology("Biomasse")).toBe(false);
+    expect(isDisplayedRenewableTechnology("Photovoltaik Bauliche")).toBe(false);
+    expect(isDisplayedRenewableTechnology("Photovoltaik")).toBe(false);
+    expect(isDisplayedRenewableTechnology(undefined)).toBe(false);
   });
 
   it("keeps the strongest renewable asset per technology group and area", () => {

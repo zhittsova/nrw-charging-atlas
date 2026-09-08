@@ -35,12 +35,17 @@ GeoServer: http://localhost:8080/geoserver
 ## Verify
 
 ```bash
-uv run python -m unittest discover -s tests -v
+uv run pytest -q tests --ignore=tests/integration
+uv run python -m scripts.run_postgis_tests
 
 cd frontend
 npm test -- --run
 npm run build
 ```
+
+The first command is the isolated unit suite; the second creates and removes
+its own disposable PostGIS resources. See [testing](docs/testing.md) for
+optional running-stack checks and failure/skip behavior.
 
 ## Reference
 
