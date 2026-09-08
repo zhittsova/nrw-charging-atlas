@@ -76,6 +76,24 @@ class ProjectStackTest(unittest.TestCase):
             ],
         )
 
+    @patch("project_stack.subprocess.run")
+    @patch("project_stack.geonode_stack.project_database_name", return_value="nrw_test")
+    def test_publish_uses_module_invocation_and_configured_database(self, database_name, run) -> None:
+        project_stack.provision_layers()
+
+        database_name.assert_called_once_with()
+        run.assert_called_once_with(
+            [
+                sys.executable,
+                "-m",
+                "scripts.provision_geoserver_layers",
+                "--database-name",
+                "nrw_test",
+                "--sync-geonode",
+            ],
+            check=True,
+        )
+
     @patch("project_stack.provision_layers")
     @patch("project_stack.verify_project")
     @patch("project_stack.seed_database")

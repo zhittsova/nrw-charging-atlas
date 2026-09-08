@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +73,89 @@ def config() -> object:
 
 
 class GeoServerProvisioningTest(unittest.TestCase):
+    def test_database_default_honors_environment_configuration(self) -> None:
+        values = {
+            "GEOSERVER_ADMIN_USER": "admin",
+            "GEOSERVER_ADMIN_PASSWORD": "secret",
+            "NRW_GEOSERVER_READ_USER": "reader",
+            "NRW_GEOSERVER_READ_PASSWORD": "reader-secret",
+            "NRW_GEOSERVER_SCENARIO_USER": "writer",
+            "NRW_GEOSERVER_SCENARIO_PASSWORD": "writer-secret",
+            "NRW_DATABASE_NAME": "nrw_alternate",
+        }
+        with (
+            patch.dict(os.environ, values, clear=True),
+            patch.object(module, "read_env", return_value={}),
+            patch.object(module, "provision_geoserver") as provision,
+            patch.object(sys, "argv", ["provision_geoserver_layers.py"]),
+        ):
+            module.main()
+
+        self.assertEqual(provision.call_args.args[1].database_name, "nrw_alternate")
+
+    def test_selected_env_file_database_name_reaches_publication(self) -> None:
+        values = {
+            "GEOSERVER_ADMIN_USER": "admin",
+            "GEOSERVER_ADMIN_PASSWORD": "secret",
+            "NRW_GEOSERVER_READ_USER": "reader",
+            "NRW_GEOSERVER_READ_PASSWORD": "reader-secret",
+            "NRW_GEOSERVER_SCENARIO_USER": "writer",
+            "NRW_GEOSERVER_SCENARIO_PASSWORD": "writer-secret",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / "alternate.env"
+            env_path.write_text("NRW_DATABASE_NAME=nrw_from_file\n", encoding="utf-8")
+            with (
+                patch.dict(os.environ, values, clear=True),
+                patch.object(module, "provision_geoserver") as provision,
+                patch.object(sys, "argv", ["provision_geoserver_layers.py", "--env-file", str(env_path)]),
+            ):
+                module.main()
+
+        self.assertEqual(provision.call_args.args[1].database_name, "nrw_from_file")
+
+    def test_explicit_database_name_beats_process_and_selected_file_for_publication(self) -> None:
+        values = {
+            "GEOSERVER_ADMIN_USER": "admin",
+            "GEOSERVER_ADMIN_PASSWORD": "secret",
+            "NRW_GEOSERVER_READ_USER": "reader",
+            "NRW_GEOSERVER_READ_PASSWORD": "reader-secret",
+            "NRW_GEOSERVER_SCENARIO_USER": "writer",
+            "NRW_GEOSERVER_SCENARIO_PASSWORD": "writer-secret",
+            "NRW_DATABASE_NAME": "nrw_from_process",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / "alternate.env"
+            env_path.write_text("NRW_DATABASE_NAME=nrw_from_file\n", encoding="utf-8")
+            with (
+                patch.dict(os.environ, values, clear=True),
+                patch.object(module, "provision_geoserver") as provision,
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "provision_geoserver_layers.py",
+                        "--env-file",
+                        str(env_path),
+                        "--database-name",
+                        "nrw_from_cli",
+                    ],
+                ),
+            ):
+                module.main()
+
+        self.assertEqual(provision.call_args.args[1].database_name, "nrw_from_cli")
+
+    def test_empty_explicit_database_name_fails_before_publication(self) -> None:
+        with (
+            patch.object(module, "provision_geoserver") as provision,
+            patch.object(sys, "argv", ["provision_geoserver_layers.py", "--database-name", ""]),
+        ):
+            with self.assertRaisesRegex(ValueError, "must not be empty"):
+                module.main()
+
+        provision.assert_not_called()
+
     def test_declares_autobahn_and_regional_road_layers(self) -> None:
         self.assertEqual(module.PUBLISH_LAYERS["nrw_autobahns"], "NRW Autobahns")
         self.assertEqual(module.PUBLISH_LAYERS["nrw_regional_roads"], "NRW Federal and State Roads")

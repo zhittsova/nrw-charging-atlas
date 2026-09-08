@@ -58,6 +58,8 @@ PROJECT_SECRET_KEYS = (
     "NRW_GEOSERVER_READ_PASSWORD",
     "NRW_GEOSERVER_SCENARIO_PASSWORD",
 )
+MINIMUM_DOCKER_MEMORY_BYTES = 6 * 1024**3
+DATABASE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
 
 
 def patch_geoserver_java_opts(value: str) -> str:
@@ -71,7 +73,10 @@ def patch_env_text(text: str) -> str:
     output: list[str] = []
     for line in lines:
         key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else ""
-        if key in LOCAL_ENV:
+        if key == "NRW_DATABASE_NAME":
+            output.append(line)
+            seen.add(key)
+        elif key in LOCAL_ENV:
             output.append(f"{key}={LOCAL_ENV[key]}")
             seen.add(key)
         elif key == "GEOSERVER_JAVA_OPTS":
@@ -80,6 +85,48 @@ def patch_env_text(text: str) -> str:
             output.append(line)
     output.extend(f"{key}={value}" for key, value in LOCAL_ENV.items() if key not in seen)
     return "\n".join(output) + "\n"
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """Read simple dotenv assignments, consistently unquoting whole values."""
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line or line.lstrip().startswith("#"):
+            continue
+        key, value = line.split("=", 1)
+        values[key] = value.strip().strip("\"'")
+    return values
+
+
+def validate_database_name(value: str, source: str) -> str:
+    if not value:
+        raise ValueError(f"NRW_DATABASE_NAME from {source} must not be empty")
+    if not DATABASE_NAME_PATTERN.fullmatch(value):
+        raise ValueError(
+            f"NRW_DATABASE_NAME from {source} must be a PostgreSQL identifier "
+            "(letters, numbers, and underscores; 63 characters or fewer)"
+        )
+    return value
+
+
+def resolve_database_name(
+    *,
+    env_path: Path | None = None,
+    environ: dict[str, str] | None = None,
+    explicit: str | None = None,
+) -> str:
+    """Resolve database target: CLI > process > selected env file > default."""
+    if explicit is not None:
+        return validate_database_name(explicit, "--database-name")
+    process_environment = os.environ if environ is None else environ
+    if "NRW_DATABASE_NAME" in process_environment:
+        return validate_database_name(process_environment["NRW_DATABASE_NAME"], "process environment")
+    selected_env_path = ENV_PATH if env_path is None else env_path
+    if selected_env_path.is_file():
+        values = read_env_file(selected_env_path)
+        if "NRW_DATABASE_NAME" in values:
+            return validate_database_name(values["NRW_DATABASE_NAME"], str(selected_env_path))
+    return LOCAL_ENV["NRW_DATABASE_NAME"]
 
 
 def ensure_project_env_values(
@@ -199,6 +246,11 @@ def compose_command(*args: str) -> list[str]:
     ]
 
 
+def project_database_name() -> str:
+    """Read the non-secret project database name from the local environment."""
+    return resolve_database_name()
+
+
 def docker_is_ready() -> bool:
     if shutil.which("docker") is None:
         return False
@@ -209,6 +261,45 @@ def docker_is_ready() -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def docker_resource_report() -> tuple[int, list[dict[str, object]], int]:
+    """Return Docker memory, usage diagnostics, and free host storage at the repo."""
+    info = subprocess.run(
+        ["docker", "info", "--format", "{{json .}}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(info.stdout)
+    memory = payload.get("MemTotal")
+    if not isinstance(memory, int):
+        raise RuntimeError("Docker did not report its available memory")
+    disk = subprocess.run(
+        ["docker", "system", "df", "--format", "{{json .}}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    rows = [json.loads(line) for line in disk.stdout.splitlines() if line.strip()]
+    return memory, rows, shutil.disk_usage(ROOT).free
+
+
+def assert_docker_resources() -> None:
+    memory, disk_rows, host_storage_free = docker_resource_report()
+    memory_gib = memory / 1024**3
+    print(f"Docker memory: {memory_gib:.1f} GiB")
+    for row in disk_rows:
+        kind = row.get("Type", "unknown")
+        size = row.get("Size", "unknown")
+        reclaimable = row.get("Reclaimable", "unknown")
+        print(f"Docker disk {kind}: {size} used, {reclaimable} reclaimable")
+    print(f"Host storage available at {ROOT}: {host_storage_free / 1024**3:.1f} GiB")
+    print("Docker storage capacity: unknown (docker system df reports usage, not free capacity)")
+    if memory < MINIMUM_DOCKER_MEMORY_BYTES:
+        raise RuntimeError(
+            f"Docker has {memory_gib:.1f} GiB RAM; at least 6.0 GiB is required"
+        )
 
 
 def parse_compose_ps(output: str) -> dict[str, str]:
@@ -317,9 +408,9 @@ def initialize_environment() -> None:
                 if diagnostic:
                     print(diagnostic, file=sys.stderr, end="" if diagnostic.endswith("\n") else "\n")
             raise
-    text = ensure_project_env_values(
-        patch_env_text(ENV_PATH.read_text(encoding="utf-8"))
-    )
+    # Validate the effective target before writing the environment file.
+    project_database_name()
+    text = ensure_project_env_values(patch_env_text(ENV_PATH.read_text(encoding="utf-8")))
     assert_resolved_env(text)
     ENV_PATH.write_text(text, encoding="utf-8")
     os.chmod(ENV_PATH, 0o600)
@@ -329,8 +420,24 @@ def initialize_environment() -> None:
 def start_stack() -> None:
     if not docker_is_ready():
         raise RuntimeError("Docker Desktop is not running or Docker is unavailable")
+    assert_docker_resources()
     initialize_environment()
-    subprocess.run(compose_command("up", "-d"), check=True)
+    subprocess.run(compose_command("up", "-d", "--build"), check=True)
+    wait_until_healthy()
+
+
+def rebuild_stack() -> None:
+    """Force fresh project images while retaining all named volumes."""
+    if not docker_is_ready():
+        raise RuntimeError("Docker Desktop is not running or Docker is unavailable")
+    assert_docker_resources()
+    initialize_environment()
+    subprocess.run(
+        compose_command("build", "--no-cache", "frontend", "nrw-etl"), check=True
+    )
+    subprocess.run(
+        compose_command("up", "-d", "--force-recreate"), check=True
+    )
     wait_until_healthy()
 
 
@@ -344,6 +451,7 @@ def main() -> None:
     subparsers.add_parser("provision")
     subparsers.add_parser("init")
     subparsers.add_parser("start")
+    subparsers.add_parser("rebuild")
     subparsers.add_parser("stop")
     subparsers.add_parser("status")
     args = parser.parse_args()
@@ -356,6 +464,8 @@ def main() -> None:
         print("GeoNode local environment is ready at geonode/.env")
     elif args.command == "start":
         start_stack()
+    elif args.command == "rebuild":
+        rebuild_stack()
     elif args.command == "stop":
         stop_stack()
     elif args.command == "status":

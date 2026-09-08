@@ -13,11 +13,16 @@ capacity.
 
 ```bash
 uv sync
-uv run python scripts/project_stack.py bootstrap
+uv run python -m scripts.project_stack bootstrap
 ```
 
 Docker needs at least 6 GB RAM. `bootstrap --skip-download` reuses a complete
 local `data/raw` directory.
+
+The supported Docker entry point is the project CLI above; do not run the
+retired root `docker-compose.yml`. Use `uv run python -m scripts.project_stack
+rebuild` to rebuild the local frontend and ETL images without cache while
+preserving named volumes.
 
 The local endpoints are:
 
