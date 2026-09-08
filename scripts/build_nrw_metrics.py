@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 
 import geopandas as gpd
 import pandas as pd
@@ -68,6 +69,18 @@ def read_nrw_chargers(config: dict[str, object]) -> gpd.GeoDataFrame:
     lon_col = next(column for column in chargers.columns if "Längengrad" in column or "Longitude" in column)
     lat_col = next(column for column in chargers.columns if "Breitengrad" in column or "Latitude" in column)
     power_col = next(column for column in chargers.columns if "Nennleistung Ladeeinrichtung" in column)
+    connector_columns = [
+        column for column in chargers.columns if column.startswith("Nennleistung Stecker")
+    ]
+    if connector_columns:
+        connector_power = chargers.loc[:, connector_columns].apply(
+            lambda column: pd.to_numeric(column.astype(str).str.replace(",", "."), errors="coerce")
+        )
+        connector_power = connector_power.where(connector_power.apply(lambda column: column.map(math.isfinite)))
+        connector_power = connector_power.where(connector_power > 0)
+        maximum_point_power = connector_power.max(axis=1)
+    else:
+        maximum_point_power = pd.Series(pd.NA, index=chargers.index, dtype="Float64")
 
     return (
         chargers.loc[lambda df: df["Bundesland"].eq(config["region_name"])]
@@ -76,6 +89,7 @@ def read_nrw_chargers(config: dict[str, object]) -> gpd.GeoDataFrame:
             latitude=lambda df: pd.to_numeric(df[lat_col].astype(str).str.replace(",", "."), errors="coerce"),
             charging_points=lambda df: pd.to_numeric(df["Anzahl Ladepunkte"], errors="coerce").fillna(1).astype(int),
             power_kw=lambda df: pd.to_numeric(df[power_col].astype(str).str.replace(",", "."), errors="coerce"),
+            max_point_power_kw=maximum_point_power,
             source_id=lambda df: df["Ladeeinrichtungs-ID"].astype(str),
             operator=lambda df: df["Betreiber"],
             district_text=lambda df: df["Kreis/kreisfreie Stadt"],
@@ -94,15 +108,16 @@ def read_nrw_chargers(config: dict[str, object]) -> gpd.GeoDataFrame:
 
 def build_charging_metrics(districts: gpd.GeoDataFrame, chargers: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     joined = gpd.sjoin(
-        chargers.loc[:, ["source_id", "charging_points", "power_kw", "geometry"]],
+        chargers.loc[:, ["source_id", "charging_points", "power_kw", "max_point_power_kw", "geometry"]],
         districts.loc[:, ["nuts_code", "geometry"]],
         predicate="within",
         how="inner",
     )
     grouped = (
         joined.assign(
-            fast_charger=lambda df: df["power_kw"].fillna(0).ge(50),
-            normal_charger=lambda df: df["power_kw"].fillna(0).lt(50),
+            fast_charger=lambda df: df["max_point_power_kw"].ge(50),
+            normal_charger=lambda df: df["max_point_power_kw"].lt(50),
+            unknown_power_charger=lambda df: df["max_point_power_kw"].isna(),
         )
         .groupby("nuts_code")
         .agg(
@@ -110,6 +125,7 @@ def build_charging_metrics(districts: gpd.GeoDataFrame, chargers: gpd.GeoDataFra
             charging_points_total=("charging_points", "sum"),
             fast_chargers_total=("fast_charger", "sum"),
             normal_chargers_total=("normal_charger", "sum"),
+            unknown_power_chargers_total=("unknown_power_charger", "sum"),
         )
         .reset_index()
     )
@@ -121,6 +137,7 @@ def build_charging_metrics(districts: gpd.GeoDataFrame, chargers: gpd.GeoDataFra
             charging_points_total=lambda df: df["charging_points_total"].fillna(0).astype(int),
             fast_chargers_total=lambda df: df["fast_chargers_total"].fillna(0).astype(int),
             normal_chargers_total=lambda df: df["normal_chargers_total"].fillna(0).astype(int),
+            unknown_power_chargers_total=lambda df: df["unknown_power_chargers_total"].fillna(0).astype(int),
             chargers_per_km2=lambda df: df["chargers_total"] / df["area_km2"],
             charging_points_per_km2=lambda df: df["charging_points_total"] / df["area_km2"],
             share_fast_chargers=lambda df: df["fast_chargers_total"] / df["chargers_total"].replace(0, pd.NA),

@@ -44,6 +44,7 @@ def charger(station_id: str = "station-1") -> dict:
             "charger_type": "Schnellladeeinrichtung",
             "charging_points": 4,
             "power_kw": 150.0,
+            "max_point_power_kw": 150.0,
             "district_text": "Düsseldorf",
             "state": "Nordrhein-Westfalen",
         },
@@ -79,6 +80,7 @@ class SnapshotPreparationTest(unittest.TestCase):
         self.assertEqual(chargers[0]["operator"], "Stadtwerke Düsseldorf")
         self.assertEqual(chargers[0]["charging_points"], 4)
         self.assertEqual(chargers[0]["power_kw"], 150.0)
+        self.assertEqual(chargers[0]["max_point_power_kw"], 150.0)
         self.assertEqual(
             chargers[0]["geom_json"],
             '{"type":"Point","coordinates":[6.78,51.23]}',
@@ -127,6 +129,7 @@ class ImportScriptTest(unittest.TestCase):
         self.assertIn("DELETE FROM raw.admin_regions AS existing", sql)
         self.assertIn("DELETE FROM raw.chargers AS existing", sql)
         self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics", sql)
+        self.assertIn("max_point_power_kw", sql)
         self.assertTrue(sql.rstrip().endswith("COMMIT;"))
         self.assertIn("Stadtwerke Düsseldorf", sql)
 

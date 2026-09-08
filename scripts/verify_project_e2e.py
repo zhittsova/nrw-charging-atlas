@@ -14,6 +14,7 @@ LONGITUDE = 6.7735
 LATITUDE = 51.2277
 CHARGING_POINTS = 4
 POWER_KW = 150
+MAX_POINT_POWER_KW = 150
 REQUIRED_CATALOG_LAYERS = (
     "nrw_ev_scenario_metrics",
     "proposed_chargers",
@@ -33,6 +34,7 @@ def insert_xml(name: str) -> str:
       <nrw:name>{escape(name)}</nrw:name>
       <nrw:charging_points>{CHARGING_POINTS}</nrw:charging_points>
       <nrw:power_kw>{POWER_KW}</nrw:power_kw>
+      <nrw:max_point_power_kw>{MAX_POINT_POWER_KW}</nrw:max_point_power_kw>
       <nrw:geom><gml:Point srsName="EPSG:4326"><gml:pos>{LONGITUDE} {LATITUDE}</gml:pos></gml:Point></nrw:geom>
     </nrw:proposed_chargers>
   </wfs:Insert>

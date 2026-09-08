@@ -55,16 +55,18 @@ class ScenarioAnalyticsDatabaseTest(unittest.TestCase):
 
             INSERT INTO raw.chargers (
                 source_id, operator, status, charger_type, charging_points,
-                power_kw, bundesland, geom
+                power_kw, max_point_power_kw, bundesland, geom
             ) VALUES
-                ('c-1', 'Fixture', 'active', 'normal', 1, 22, 'Nordrhein-Westfalen',
+                ('c-1', 'Fixture', 'active', 'normal', 1, 22, 22, 'Nordrhein-Westfalen',
                  ST_SetSRID(ST_Point(6.2, 50.2), 4326)),
-                ('c-2', 'Fixture', 'active', 'fast', 2, 75, 'Nordrhein-Westfalen',
+                ('c-2', 'Fixture', 'active', 'fast', 2, 75, 50, 'Nordrhein-Westfalen',
                  ST_SetSRID(ST_Point(7.2, 50.2), 4326)),
-                ('c-3', 'Fixture', 'active', 'fast', 3, 150, 'Nordrhein-Westfalen',
+                ('c-3', 'Fixture', 'active', 'fast', 3, 150, 150, 'Nordrhein-Westfalen',
                  ST_SetSRID(ST_Point(8.2, 50.2), 4326)),
-                ('c-4', 'Fixture', 'active', 'normal', 2, 22, 'Nordrhein-Westfalen',
-                 ST_SetSRID(ST_Point(8.7, 50.7), 4326));
+                ('c-4', 'Fixture', 'active', 'normal', 2, 44, 22, 'Nordrhein-Westfalen',
+                 ST_SetSRID(ST_Point(8.7, 50.7), 4326)),
+                ('c-5', 'Fixture', 'active', 'unknown', 1, 150, NULL, 'Nordrhein-Westfalen',
+                 ST_SetSRID(ST_Point(8.4, 50.7), 4326));
 
             INSERT INTO raw.roads (
                 osm_id, road_class, traffic_total, source, geom
@@ -155,13 +157,32 @@ class ScenarioAnalyticsDatabaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "3|t|t|t")
 
+    def test_power_classes_use_maximum_connector_power_and_reconcile(self) -> None:
+        result = self.psql(
+            """
+            SELECT nuts_code, chargers_total, fast_chargers_total,
+                   normal_chargers_total, unknown_power_chargers_total,
+                   chargers_total = fast_chargers_total + normal_chargers_total
+                                    + unknown_power_chargers_total
+            FROM analytics.nrw_district_metrics
+            ORDER BY nuts_code;
+            """,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip().splitlines(),
+            ["DEA01|1|0|1|0|t", "DEA02|1|1|0|0|t", "DEA03|3|1|1|1|t"],
+        )
+
     def test_proposed_charger_changes_only_its_district_charger_metrics(self) -> None:
         self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                'Professor scenario', 4, 150,
+                'Professor scenario', 4, 150, 150,
                 ST_SetSRID(ST_Point(6.6, 50.6), 4326)
             );
             """
@@ -170,6 +191,7 @@ class ScenarioAnalyticsDatabaseTest(unittest.TestCase):
             """
             SELECT nuts_code, chargers_total_delta, charging_points_total_delta,
                    fast_chargers_total_delta,
+                   unknown_power_chargers_total_delta,
                    scenario_ev_readiness_score >= baseline_ev_readiness_score
             FROM publish.nrw_ev_scenario_metrics
             ORDER BY nuts_code;
@@ -180,7 +202,7 @@ class ScenarioAnalyticsDatabaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip().splitlines(),
-            ["DEA01|1|4|1|t", "DEA02|0|0|0|t", "DEA03|0|0|0|t"],
+            ["DEA01|1|4|1|0|t", "DEA02|0|0|0|0|t", "DEA03|0|0|0|0|t"],
         )
 
     def test_scenario_uses_unchanged_baseline_normalization_bounds(self) -> None:
@@ -190,9 +212,9 @@ class ScenarioAnalyticsDatabaseTest(unittest.TestCase):
         self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                'Large scenario', 100, 1000,
+                'Large scenario', 100, 1000, 1000,
                 ST_SetSRID(ST_Point(6.6, 50.6), 4326)
             );
             """
