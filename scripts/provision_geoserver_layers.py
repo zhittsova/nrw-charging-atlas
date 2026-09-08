@@ -3,12 +3,17 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
 import requests
 
-from scripts.geonode_stack import ENV_PATH, compose_command
+try:
+    from scripts.geonode_stack import ENV_PATH, compose_command, read_env_file, resolve_database_name
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from geonode_stack import ENV_PATH, compose_command, read_env_file, resolve_database_name
 
 
 WORKSPACE = "nrw"
@@ -303,13 +308,7 @@ def sync_geonode_catalog(admin_username: str) -> None:
 
 
 def read_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if "=" not in line or line.lstrip().startswith("#"):
-            continue
-        key, value = line.split("=", 1)
-        values[key] = value.strip().strip("\"'")
-    return values
+    return read_env_file(path)
 
 
 def _required(value: str | None, name: str) -> str:
@@ -326,7 +325,10 @@ def main() -> None:
     parser.add_argument("--geoserver-url", default="http://localhost:8080/geoserver")
     parser.add_argument("--database-host", default="db")
     parser.add_argument("--database-port", type=int, default=5432)
-    parser.add_argument("--database-name", default="nrw_gis")
+    parser.add_argument(
+        "--database-name",
+        default=None,
+    )
     parser.add_argument("--sync-geonode", action="store_true")
     args = parser.parse_args()
 
@@ -337,7 +339,7 @@ def main() -> None:
         admin_password=_required(values.get("GEOSERVER_ADMIN_PASSWORD"), "GEOSERVER_ADMIN_PASSWORD"),
         database_host=args.database_host,
         database_port=args.database_port,
-        database_name=args.database_name,
+        database_name=resolve_database_name(env_path=args.env_file, explicit=args.database_name),
         publish_user=_required(values.get("NRW_GEOSERVER_READ_USER"), "NRW_GEOSERVER_READ_USER"),
         publish_password=_required(
             values.get("NRW_GEOSERVER_READ_PASSWORD"),

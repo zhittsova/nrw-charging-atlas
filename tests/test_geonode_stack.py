@@ -64,6 +64,14 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         )
         self.assertIn("127.0.0.1", patched)
 
+    def test_patch_env_preserves_configured_database_name(self) -> None:
+        module = load_module()
+
+        patched = module.patch_env_text("NRW_DATABASE_NAME=nrw_custom\n")
+
+        self.assertIn("NRW_DATABASE_NAME=nrw_custom", patched)
+        self.assertNotIn("NRW_DATABASE_NAME=nrw_gis", patched)
+
     def test_unresolved_template_values_are_rejected(self) -> None:
         module = load_module()
 
@@ -88,6 +96,86 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
             ],
         )
         self.assertEqual(command[-2:], ["config", "--quiet"])
+
+    def test_project_database_name_uses_non_secret_environment_setting(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / ".env"
+            env_path.write_text("NRW_DATABASE_NAME=nrw_alternate\nSECRET=not-read\n")
+            with patch.object(module, "ENV_PATH", env_path):
+                self.assertEqual(module.project_database_name(), "nrw_alternate")
+
+    def test_project_database_name_process_override_beats_selected_file(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / ".env"
+            env_path.write_text("NRW_DATABASE_NAME=nrw_from_file\n", encoding="utf-8")
+            with (
+                patch.object(module, "ENV_PATH", env_path),
+                patch.dict("os.environ", {"NRW_DATABASE_NAME": "nrw_from_process"}, clear=True),
+            ):
+                self.assertEqual(module.project_database_name(), "nrw_from_process")
+
+    def test_database_name_precedence_honors_default_file_process_and_cli(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / "alternate.env"
+            env_path.write_text("NRW_DATABASE_NAME='nrw_from_file'\n", encoding="utf-8")
+
+            self.assertEqual(
+                module.resolve_database_name(env_path=env_path, environ={}), "nrw_from_file"
+            )
+            self.assertEqual(
+                module.resolve_database_name(
+                    env_path=env_path,
+                    environ={"NRW_DATABASE_NAME": "nrw_from_process"},
+                ),
+                "nrw_from_process",
+            )
+            self.assertEqual(
+                module.resolve_database_name(
+                    env_path=env_path,
+                    environ={"NRW_DATABASE_NAME": "nrw_from_process"},
+                    explicit="nrw_from_cli",
+                ),
+                "nrw_from_cli",
+            )
+            self.assertEqual(
+                module.resolve_database_name(env_path=Path(directory) / "missing", environ={}),
+                "nrw_gis",
+            )
+            with self.assertRaisesRegex(ValueError, "must not be empty"):
+                module.resolve_database_name(
+                    env_path=env_path, environ={"NRW_DATABASE_NAME": ""}
+                )
+            with self.assertRaisesRegex(ValueError, "PostgreSQL identifier"):
+                module.resolve_database_name(
+                    env_path=env_path, environ={}, explicit="not-valid-name"
+                )
+
+    def test_invalid_database_name_fails_before_environment_mutation(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            geonode_dir = Path(directory) / "geonode"
+            geonode_dir.mkdir()
+            (geonode_dir / "create-envfile.py").touch()
+            compose_path = geonode_dir / "docker-compose.yml"
+            compose_path.touch()
+            env_path = geonode_dir / ".env"
+            original = "NRW_DATABASE_NAME=not-valid-name\n"
+            env_path.write_text(original, encoding="utf-8")
+            with (
+                patch.object(module, "GEONODE_DIR", geonode_dir),
+                patch.object(module, "ENV_PATH", env_path),
+                patch.object(module, "COMPOSE_PATH", compose_path),
+                patch.object(module, "validate_upstream_checkout"),
+                patch.object(module.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "PostgreSQL identifier"):
+                    module.initialize_environment()
+
+            self.assertEqual(env_path.read_text(encoding="utf-8"), original)
+            run.assert_not_called()
 
     def test_project_database_secrets_are_generated_once_and_preserved(self) -> None:
         module = load_module()
@@ -226,6 +314,16 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
 
         self.assertIn("letsencrypt:\n    profiles:\n      - tls", override)
 
+    def test_local_override_replaces_upstream_public_port_mappings(self) -> None:
+        override = (
+            ROOT / "config" / "geonode" / "docker-compose.nrw-project.yml"
+        ).read_text()
+
+        self.assertIn("geonode:\n    ports: !override", override)
+        self.assertIn("geoserver:\n    ports: !override", override)
+        self.assertIn('"127.0.0.1:${HTTP_PORT}:80"', override)
+        self.assertIn('"127.0.0.1:8080:8080"', override)
+
     def test_init_first_run_prints_only_ready_message(self) -> None:
         module = load_module()
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -333,6 +431,47 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             stderr=subprocess.DEVNULL,
             check=False,
         )
+
+    @patch("subprocess.run")
+    def test_resource_report_reads_memory_and_disk_without_environment(self, run: Mock) -> None:
+        module = load_module()
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0, stdout='{"MemTotal": 8589934592}'),
+            subprocess.CompletedProcess(
+                [], 0, stdout='{"Type":"Images","Size":"1GB","Reclaimable":"500MB"}\n'
+            ),
+        ]
+
+        memory, disk, host_free = module.docker_resource_report()
+
+        self.assertEqual(memory, 8589934592)
+        self.assertEqual(disk[0]["Type"], "Images")
+        self.assertIsInstance(host_free, int)
+        self.assertEqual(
+            run.call_args_list[0].args[0], ["docker", "info", "--format", "{{json .}}"]
+        )
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            ["docker", "system", "df", "--format", "{{json .}}"],
+        )
+
+    def test_resource_gate_rejects_insufficient_memory(self) -> None:
+        module = load_module()
+        with patch.object(module, "docker_resource_report", return_value=(2 * 1024**3, [], 0)):
+            with self.assertRaisesRegex(RuntimeError, "at least 6.0 GiB"):
+                module.assert_docker_resources()
+
+    def test_resource_diagnostics_distinguish_host_free_space_from_docker_capacity(self) -> None:
+        module = load_module()
+        output = io.StringIO()
+        with (
+            patch.object(module, "docker_resource_report", return_value=(8 * 1024**3, [], 5 * 1024**3)),
+            contextlib.redirect_stdout(output),
+        ):
+            module.assert_docker_resources()
+
+        self.assertIn("Host storage available", output.getvalue())
+        self.assertIn("Docker storage capacity: unknown", output.getvalue())
 
     @patch("subprocess.run")
     def test_stop_never_removes_volumes(self, run: Mock) -> None:
@@ -484,6 +623,7 @@ class GeoNodeLifecycleTest(unittest.TestCase):
 
         with (
             patch.object(module, "docker_is_ready", return_value=True),
+            patch.object(module, "assert_docker_resources") as resources,
             patch.object(module, "initialize_environment") as initialize,
             patch.object(module.subprocess, "run") as run,
             patch.object(module, "wait_until_healthy") as wait,
@@ -491,8 +631,25 @@ class GeoNodeLifecycleTest(unittest.TestCase):
             module.start_stack()
 
         initialize.assert_called_once_with()
-        run.assert_called_once_with(module.compose_command("up", "-d"), check=True)
+        resources.assert_called_once_with()
+        run.assert_called_once_with(module.compose_command("up", "-d", "--build"), check=True)
         wait.assert_called_once_with()
+
+    def test_rebuild_preserves_volumes_while_recreating_containers(self) -> None:
+        module = load_module()
+        with (
+            patch.object(module, "docker_is_ready", return_value=True),
+            patch.object(module, "assert_docker_resources"),
+            patch.object(module, "initialize_environment"),
+            patch.object(module, "wait_until_healthy"),
+            patch.object(module.subprocess, "run") as run,
+        ):
+            module.rebuild_stack()
+
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertIn(module.compose_command("build", "--no-cache", "frontend", "nrw-etl"), commands)
+        self.assertIn(module.compose_command("up", "-d", "--force-recreate"), commands)
+        self.assertFalse(any("-v" in command or "--volumes" in command for command in commands))
 
     def test_status_cli_prints_services_and_validates_health(self) -> None:
         module = load_module()

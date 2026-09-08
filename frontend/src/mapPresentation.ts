@@ -108,17 +108,16 @@ type RenewableFeature = GeoJSON.Feature<GeoJSON.Geometry, RenewableProperties>;
 
 export const RENEWABLE_TECHNOLOGY_COLORS: Record<string, string> = {
   Windenergie: "#38bdf8",
-  "Photovoltaik Freifläche": "#facc15",
-  "Photovoltaik Bauliche": "#facc15"
+  "Photovoltaik Freifläche": "#b77900"
 };
 
 export const RENEWABLE_LEGEND_ITEMS = [
-  { label: "Solar energy", color: "#facc15" },
+  { label: "Solar farms (ground-mounted)", color: "#b77900" },
   { label: "Wind energy", color: "#38bdf8" }
 ] as const;
 
 export function isDisplayedRenewableTechnology(technology: string | undefined): boolean {
-  return technology === "Windenergie" || technology?.startsWith("Photovoltaik") === true;
+  return technology === "Windenergie" || technology === "Photovoltaik Freifläche";
 }
 
 export function renewableTechnologyLabel(technology: string | undefined): string {
@@ -275,11 +274,11 @@ export function scoreColor(
     if (improvement > -10) return "#c026d3";
     return "#be123c";
   }
-  if (score >= 80) return "#f97316";
-  if (score >= 65) return "#eab308";
-  if (score >= 50) return "#06b6d4";
-  if (score >= 35) return "#3b82f6";
-  return "#6d28d9";
+  if (score >= 80) return "#084594";
+  if (score >= 65) return "#2171b5";
+  if (score >= 50) return "#6baed6";
+  if (score >= 35) return "#bdd7e7";
+  return "#eff3ff";
 }
 
 export function officialStationStyle(powerKw: number, zoom = 9) {

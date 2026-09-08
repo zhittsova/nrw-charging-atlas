@@ -181,7 +181,7 @@ let selectedLayer: L.Layer | null = null;
 let pendingLocation: L.LatLng | null = null;
 let awaitingMapClick = false;
 
-const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView(NRW_CENTER, 7);
+const map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: false }).setView(NRW_CENTER, 7);
 map.createPane("regions");
 map.createPane("regionalRoads");
 map.createPane("autobahnCasing");
@@ -199,12 +199,7 @@ map.getPane("proposedStations")!.style.zIndex = "490";
 
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: "&copy; OpenStreetMap"
-});
-
-const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  maxZoom: 20,
-  attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+  attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
 
 const stationLayer = L.geoJSON(undefined, {
@@ -395,18 +390,17 @@ const regionLayer = L.geoJSON(undefined, {
 L.control
   .layers(
     {
-      "Carto Dark": carto,
       OpenStreetMap: osm
     },
     {
       "Proposed charging stations": proposedStationLayer,
       "Official charging stations": stationLayer,
-      "Solar and wind energy": renewableAssetLayer,
+      "Solar farms and wind energy": renewableAssetLayer,
       "Autobahns": autobahnLayer,
       "Federal and state roads": regionalRoadLayer,
       "NRW district indicators": regionLayer
     },
-    { collapsed: false }
+    { collapsed: true }
   )
   .addTo(map);
 
@@ -656,22 +650,40 @@ function selectRegion(feature: Feature<RegionProperties>, layer?: L.Layer): void
 
 function renderRanking(metric: ScoreMetric = activeRanking): void {
   activeRanking = metric;
+  setText("ranking-count", `${regionFeatures.length} districts`);
+  setText("ranking-explanation", scenarioViewMode === "change"
+    ? "Largest absolute changes first. Positive and negative values are changes in score points, not current scores."
+    : "All districts, highest scores first. Scroll to see more; select a district for details.");
+  const legend = document.getElementById("district-legend");
+  if (legend) {
+    const bins: [number, string][] = scenarioViewMode === "change"
+      ? [[-12, "−10 or less"], [-5, "−10 to 0"], [0, "No change"], [5, "0 to +10"], [12, "+10 or more"]]
+      : [[10, "Below 35"], [40, "35–49"], [55, "50–64"], [70, "65–79"], [90, "80–100"]];
+    legend.innerHTML = `<strong>${escapeHtml(scoreLabels[activeScore])}${scenarioViewMode === "change" ? " · change in points" : " · score out of 100"}</strong>`
+      + bins.map(([value, label]) => `<span><i style="background:${scoreColor(value, activeScore)}"></i>${label}</span>`).join("");
+  }
   const list = document.getElementById("ranking-list");
   if (!list) return;
 
   document.querySelectorAll(".ranking-tab").forEach((button) => {
     button.classList.toggle("active", (button as HTMLElement).dataset.ranking === metric);
+    button.setAttribute("aria-pressed", String((button as HTMLElement).dataset.ranking === metric));
   });
 
   list.innerHTML = "";
   sortedRegions(metric)
-    .slice(0, 10)
     .forEach((feature, index) => {
       const p = feature.properties;
       const score = scoreValue(p, metric);
       const width = Math.max(8, Math.min(100, Math.abs(score)));
       const item = document.createElement("li");
       item.className = "ranking-item";
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `${regionName(p)}, ${scoreLabels[metric]} ${formatScore(score)}. Show district.`);
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.click(); }
+      });
       item.innerHTML = `
         <span class="ranking-rank">#${index + 1}</span>
         <span class="ranking-dot"></span>
@@ -878,15 +890,12 @@ async function boot(): Promise<void> {
   const connectedSourceCount = [regionsResult.source, stationsResult.source, renewableResult.source]
     .filter((source) => source.startsWith("GeoNode")).length;
   setHeaderStatus(connectedSourceCount > 0 ? "GeoNode WFS connected" : "Local GeoJSON fallback");
+  setText("data-quality-note", regionsResult.source.startsWith("GeoNode")
+    ? "District data loaded from WFS. Scores are relative screening measures; inspect the methods and district details before drawing conclusions."
+    : "Limited comparison: district data comes from a local snapshot with simplified charger-supply scores. It does not provide the full population, accessibility and infrastructure assessment described above. Use this view to explore the interface, not to decide where to build.");
   const note = document.querySelector(".map-note");
   if (note) {
-    const sourceNote =
-      regionsResult.source.startsWith("GeoNode")
-        || stationsResult.source.startsWith("GeoNode")
-        || renewableResult.source.startsWith("GeoNode")
-        ? "GeoNode-connected map: district indicators, charging stations and available road layers are served from PostGIS through GeoServer WFS."
-        : "Local-first preview: GeoNode is offline, so the dashboard is using the checked-in NRW GeoJSON snapshot.";
-    note.textContent = `${sourceNote} Charging stations, solar assets and wind assets are thinned at wider views; zoom in to reveal more.`;
+    note.textContent = `Districts: ${regionsResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}; stations: ${stationsResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}; renewables: ${renewableResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}. Renewable overlay: operating wind assets and ground-mounted solar farms only; building-mounted solar is hidden. Zoom in to see more locations. This display filter does not change district energy totals.`;
   }
   map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });
   try {
@@ -897,16 +906,30 @@ async function boot(): Promise<void> {
   }
 }
 
-document.getElementById("score-mode")?.addEventListener("change", (event) => {
-  activeScore = (event.target as HTMLSelectElement).value as ScoreMetric;
+function chooseIndicator(metric: ScoreMetric): void {
+  activeScore = metric;
+  (document.getElementById("score-mode") as HTMLSelectElement).value = metric;
+  document.querySelectorAll<HTMLButtonElement>("[data-question]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.question === metric));
+  });
+  const explanations: Record<ScoreMetric, string> = {
+    chargerDeficitScore: "Higher Charger Deficit means a larger relative charging gap. Check the data notice before interpreting population and accessibility.",
+    investmentPriorityScore: "Higher Investment Priority means a district merits closer review for new charging stations. It does not identify a construction-ready site.",
+    evReadinessScore: "Higher EV Readiness means stronger present charging provision relative to other districts. This is not a forecast of future demand.",
+    infrastructureOpportunityScore: "Higher Infrastructure Opportunity means stronger supporting traffic, grid and renewable context. Grid capacity is a proxy, not a confirmed connection offer."
+  };
+  setText("question-explanation", explanations[metric]);
   regionLayer.setStyle((feature) => regionStyle(feature as Feature<RegionProperties>));
-  renderRanking(activeScore);
+  renderRanking(metric);
   const selected = regionFeatures.find((feature) => regionId(feature.properties) === selectedRegionId) ?? null;
   if (selected) renderRegionDetail(selected);
-});
+}
 
-document.querySelectorAll(".ranking-tab").forEach((button) => {
-  button.addEventListener("click", () => renderRanking((button as HTMLElement).dataset.ranking as ScoreMetric));
+document.getElementById("score-mode")?.addEventListener("change", (event) => {
+  chooseIndicator((event.target as HTMLSelectElement).value as ScoreMetric);
+});
+document.querySelectorAll<HTMLButtonElement>(".ranking-tab, [data-question]").forEach((button) => {
+  button.addEventListener("click", () => chooseIndicator((button.dataset.question ?? button.dataset.ranking) as ScoreMetric));
 });
 
 document.querySelectorAll<HTMLElement>("[data-scenario-mode]").forEach((button) => {
@@ -975,9 +998,10 @@ document.getElementById("scenario-form")?.addEventListener("submit", async (even
 
 boot().catch((error) => {
   console.error(error);
+  setText("data-quality-note", "Data could not be loaded. District comparisons are unavailable; try again when the data service is available.");
   const note = document.querySelector(".map-note");
   if (note) {
     note.textContent =
-      "NRW GeoJSON and GeoNode WFS could not be loaded. Check the local GeoNode stack or run `python3 -m http.server 8000 --directory frontend`.";
+      "Map data is unavailable. Reload the page once the data service is available.";
   }
 });

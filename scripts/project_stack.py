@@ -5,8 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import geonode_stack
-from geonode_stack import ROOT, compose_command
+try:
+    import geonode_stack
+    from geonode_stack import ROOT, compose_command
+except ModuleNotFoundError:
+    from scripts import geonode_stack
+    from scripts.geonode_stack import ROOT, compose_command
 
 
 POPULATION_SNAPSHOT = ROOT / "data" / "raw" / "eurostat_population_nrw.json"
@@ -58,7 +62,10 @@ def provision_layers() -> None:
     subprocess.run(
         [
             sys.executable,
-            str(ROOT / "scripts" / "provision_geoserver_layers.py"),
+            "-m",
+            "scripts.provision_geoserver_layers",
+            "--database-name",
+            geonode_stack.project_database_name(),
             "--sync-geonode",
         ],
         check=True,
@@ -106,6 +113,10 @@ def main() -> None:
         help="reuse files already present in data/raw",
     )
     commands.add_parser("start", help="start the existing local stack")
+    commands.add_parser(
+        "rebuild",
+        help="rebuild local frontend and ETL images without cache, then recreate containers",
+    )
     commands.add_parser("fetch", help="download or refresh public source datasets")
     commands.add_parser("seed", help="rebuild the project database from source snapshots")
     commands.add_parser("publish", help="provision GeoServer layers and synchronize GeoNode")
@@ -119,6 +130,9 @@ def main() -> None:
         print_endpoints()
     elif args.command == "start":
         start()
+        print_endpoints()
+    elif args.command == "rebuild":
+        geonode_stack.rebuild_stack()
         print_endpoints()
     elif args.command == "fetch":
         fetch_data()
