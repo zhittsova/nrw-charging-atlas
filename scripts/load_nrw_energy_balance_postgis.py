@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from config_utils import ROOT
-from load_nrw_postgis import _copy_block, read_admin_regions, run_psql
+from load_nrw_postgis import _copy_block, read_raw_seed_snapshot
 
 
 ENERGY_WORKBOOK = (
@@ -402,9 +402,6 @@ WHERE NOT EXISTS (
     WHERE incoming.year = existing.year AND incoming.ags = existing.ags
 );
 
--- analytics.nrw_local_energy_balance is a live view over this measurement:
--- refreshing the measurement is what republishes the scores built on it.
-REFRESH MATERIALIZED VIEW analytics.nrw_energy_balance_raw;
 COMMIT;
 """
 
@@ -416,7 +413,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--regions",
         type=Path,
-        default=ROOT / "frontend" / "data" / "nrw_regions_sample.geojson",
+        default=ROOT / "data" / "raw" / "nuts3_regions_gisco_2024.geojson",
     )
     parser.add_argument("--check-only", action="store_true")
     return parser.parse_args()
@@ -424,7 +421,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    lookup = build_district_lookup(read_admin_regions(args.regions))
+    if args.regions == ROOT / "data" / "raw" / "nuts3_regions_gisco_2024.geojson":
+        admin_regions, _, _ = read_raw_seed_snapshot()
+    else:
+        from load_nrw_postgis import read_admin_regions
+
+        admin_regions = read_admin_regions(args.regions)
+    lookup = build_district_lookup(admin_regions)
     consumption, renewables, reporting_year = read_energy_workbook(args.workbook, lookup)
     print(
         f"validated energy snapshot: consumption={len(consumption)}, "
@@ -434,17 +437,10 @@ def main() -> None:
         return
     if not args.database_url:
         raise ValueError("DATABASE_URL or --database-url is required unless --check-only is used")
-    schema_sql = (ROOT / "db" / "nrw_schema.sql").read_text(encoding="utf-8")
-    analytics_sql = (ROOT / "db" / "nrw_analytics.sql").read_text(encoding="utf-8")
-    run_psql(
-        args.database_url,
-        [
-            schema_sql,
-            analytics_sql,
-            build_import_script(consumption, renewables, reporting_year),
-        ],
+    raise ValueError(
+        "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
+        "to publish a complete atomic seed."
     )
-    print("loaded NRW municipal energy balance")
 
 
 if __name__ == "__main__":

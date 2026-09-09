@@ -15,7 +15,6 @@ RUN uv sync --frozen --no-install-project
 COPY catalog ./catalog
 COPY config ./config
 COPY db ./db
-COPY frontend/data ./frontend/data
 COPY scripts ./scripts
 
 CMD ["python", "--version"]

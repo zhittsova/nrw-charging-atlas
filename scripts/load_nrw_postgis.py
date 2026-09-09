@@ -6,6 +6,7 @@ import io
 import json
 import math
 import os
+import re
 import subprocess
 from collections.abc import Callable, Iterable
 from datetime import date
@@ -121,6 +122,44 @@ def read_admin_regions(path: Path) -> list[dict]:
 
 def read_chargers(path: Path) -> list[dict]:
     return _unique_rows(_read_feature_collection(path), charger_row, "source_id", "charger")
+
+
+def read_raw_seed_snapshot() -> tuple[list[dict], list[dict], dict[str, str] | None]:
+    """Read the canonical raw inputs without consulting frontend exports.
+
+    The frontend GeoJSON files are a downstream convenience artifact.  Keeping
+    this adapter next to the raw-to-table converter ensures that a seed and a
+    frontend export share the same source parsing and charger quality gate,
+    without making either stage depend on the other.
+    """
+    from generate_nrw_frontend_data import load_nrw_chargers, load_nrw_regions
+    from config_utils import read_simple_region_config
+    from nrw_charger_quality import assert_reconciled, classify_chargers
+
+    config = read_simple_region_config(ROOT / "config" / "regions" / "nrw.yml")
+    regions = load_nrw_regions(config)
+    candidates, snapshot_date = load_nrw_chargers(config)
+    accepted, rejected = classify_chargers(candidates, regions)
+    assert_reconciled(
+        len(candidates),
+        accepted,
+        rejected,
+        {str(region["properties"]["nuts_code"]) for region in regions},
+    )
+    snapshot = (
+        {
+            "source_key": "bnetza_ladesaeulenregister",
+            "snapshot_date": snapshot_date,
+            "source_name": "Bundesnetzagentur Ladesaeulenregister",
+        }
+        if snapshot_date is not None
+        else None
+    )
+    return (
+        _unique_rows(regions, admin_row, "nuts_code", "admin region"),
+        _unique_rows(accepted, charger_row, "source_id", "charger"),
+        snapshot,
+    )
 
 
 def read_source_snapshot(path: Path) -> dict[str, str] | None:
@@ -317,7 +356,6 @@ WHERE NOT EXISTS (
 );
 
 {snapshot_block}
-REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;
 COMMIT;
 """
 
@@ -342,19 +380,64 @@ def run_psql(
             raise RuntimeError(diagnostics)
 
 
+def transaction_body(sql: str, *, label: str) -> str:
+    """Remove one document's outer transaction for a coordinated refresh.
+
+    SQL and import builders remain independently executable for their focused
+    tests and diagnostics.  The seed coordinator must instead place all of
+    them in *one* transaction, so a failure cannot publish a mixture of old
+    analytics and new raw rows.
+    """
+    match = re.search(r"(?m)^BEGIN;\s*$", sql)
+    if match is None:
+        raise ValueError(f"{label} is missing its outer BEGIN")
+    trailing = re.search(r"(?s)\nCOMMIT;\s*\Z", sql)
+    if trailing is None or trailing.start() <= match.end():
+        raise ValueError(f"{label} is missing its outer COMMIT")
+    return sql[: match.start()] + sql[match.end() : trailing.start()] + "\n"
+
+
+def run_refresh(
+    database_url: str,
+    *,
+    schema_sql: str,
+    import_sql: str | Iterable[str],
+    analytics_sql: str,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    psql: str = PSQL,
+) -> None:
+    """Atomically publish a fully validated candidate refresh in one psql call."""
+    import_documents = (import_sql,) if isinstance(import_sql, str) else tuple(import_sql)
+    if not import_documents:
+        raise ValueError("A refresh requires at least one staged import document")
+    documents = (
+        transaction_body(schema_sql, label="schema SQL"),
+        *(transaction_body(document, label="import SQL") for document in import_documents),
+        # The schema creates this materialization before candidate imports so
+        # that legacy upgrades have a stable shape.  Refresh it only after
+        # every source stage is present; analytics below consumes these exact
+        # candidate measurements.
+        "REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;\n",
+        transaction_body(analytics_sql, label="analytics SQL"),
+    )
+    coordinated_sql = "\\set ON_ERROR_STOP on\nBEGIN;\n" + "\n".join(documents) + "COMMIT;\n"
+    run_psql(
+        database_url,
+        (coordinated_sql,),
+        runner=runner,
+        psql=psql,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Load validated NRW snapshots into PostGIS")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--schema", type=Path, default=ROOT / "db" / "nrw_schema.sql")
-    parser.add_argument(
-        "--regions",
-        type=Path,
-        default=ROOT / "frontend" / "data" / "nrw_regions_sample.geojson",
-    )
+    parser.add_argument("--regions", type=Path, help="Optional legacy GeoJSON regions input")
     parser.add_argument(
         "--chargers",
         type=Path,
-        default=ROOT / "frontend" / "data" / "nrw_charging_stations_sample.geojson",
+        help="Optional legacy GeoJSON chargers input",
     )
     parser.add_argument("--check-only", action="store_true")
     return parser.parse_args()
@@ -362,9 +445,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    admin_regions = read_admin_regions(args.regions)
-    chargers = read_chargers(args.chargers)
-    source_snapshot = read_source_snapshot(args.chargers)
+    if (args.regions is None) != (args.chargers is None):
+        raise ValueError("--regions and --chargers must be supplied together")
+    if args.regions is None:
+        admin_regions, chargers, source_snapshot = read_raw_seed_snapshot()
+    else:
+        admin_regions = read_admin_regions(args.regions)
+        chargers = read_chargers(args.chargers)
+        source_snapshot = read_source_snapshot(args.chargers)
     validate_snapshot(admin_regions, chargers)
 
     print(f"validated {len(admin_regions)} NRW admin regions")
@@ -374,20 +462,9 @@ def main() -> None:
     if not args.database_url:
         raise ValueError("DATABASE_URL or --database-url is required unless --check-only is used")
 
-    schema_sql = args.schema.read_text(encoding="utf-8")
-    analytics_sql = (ROOT / "db" / "nrw_analytics.sql").read_text(encoding="utf-8")
-    run_psql(
-        args.database_url,
-        [
-            f"BEGIN;\n{schema_sql}\nCOMMIT;\n",
-            build_import_script(admin_regions, chargers, source_snapshot=source_snapshot),
-            analytics_sql,
-        ],
-    )
-    print("loaded raw.admin_regions and raw.chargers")
-    print(
-        "charger snapshot date: "
-        + (source_snapshot["snapshot_date"] if source_snapshot else "not recorded by the snapshot")
+    raise ValueError(
+        "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
+        "to publish a complete atomic seed."
     )
 
 

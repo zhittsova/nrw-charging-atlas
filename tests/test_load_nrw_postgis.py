@@ -128,7 +128,7 @@ class ImportScriptTest(unittest.TestCase):
         self.assertIn("ON CONFLICT (source_id) DO UPDATE", sql)
         self.assertIn("DELETE FROM raw.admin_regions AS existing", sql)
         self.assertIn("DELETE FROM raw.chargers AS existing", sql)
-        self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics", sql)
+        self.assertNotIn("REFRESH MATERIALIZED VIEW", sql)
         self.assertIn("max_point_power_kw", sql)
         self.assertTrue(sql.rstrip().endswith("COMMIT;"))
         self.assertIn("Stadtwerke Düsseldorf", sql)
@@ -142,6 +142,52 @@ class ImportScriptTest(unittest.TestCase):
                 "postgresql://example.invalid/nrw",
                 ["SELECT 1;"],
                 runner=failing_runner,
+            )
+
+    def test_refresh_combines_all_documents_into_one_transaction(self) -> None:
+        schema_sql = "BEGIN;\nSELECT 'schema';\nCOMMIT;\n"
+        import_sql = "BEGIN;\nSELECT 'import';\nCOMMIT;\n"
+        analytics_sql = "BEGIN;\nSELECT 'analytics';\nCOMMIT;\n"
+        submitted: list[str] = []
+
+        def runner(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            submitted.append(str(kwargs["input"]))
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+        loader.run_refresh(
+            "postgresql://example.invalid/nrw",
+            schema_sql=schema_sql,
+            import_sql=import_sql,
+            analytics_sql=analytics_sql,
+            runner=runner,
+        )
+
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(submitted[0].count("BEGIN;"), 1)
+        self.assertEqual(submitted[0].count("COMMIT;"), 1)
+        self.assertIn("SELECT 'schema';", submitted[0])
+        self.assertIn("SELECT 'import';", submitted[0])
+        self.assertIn("SELECT 'analytics';", submitted[0])
+        self.assertLess(
+            submitted[0].index("SELECT 'import';"),
+            submitted[0].index("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;"),
+        )
+        self.assertLess(
+            submitted[0].index("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;"),
+            submitted[0].index("SELECT 'analytics';"),
+        )
+
+    def test_refresh_reports_a_single_transaction_failure(self) -> None:
+        def runner(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess([], 3, stdout="", stderr="analytics failed")
+
+        with self.assertRaisesRegex(RuntimeError, "analytics failed"):
+            loader.run_refresh(
+                "postgresql://example.invalid/nrw",
+                schema_sql="BEGIN;\nSELECT 'schema';\nCOMMIT;\n",
+                import_sql="BEGIN;\nSELECT 'import';\nCOMMIT;\n",
+                analytics_sql="BEGIN;\nSELECT 'analytics';\nCOMMIT;\n",
+                runner=runner,
             )
 
 

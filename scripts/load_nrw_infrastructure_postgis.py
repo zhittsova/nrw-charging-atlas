@@ -13,7 +13,7 @@ import pandas as pd
 from shapely.geometry import mapping
 
 from config_utils import ROOT
-from load_nrw_postgis import _copy_block, run_psql
+from load_nrw_postgis import _copy_block
 
 
 def geom_json(geometry: object) -> str:
@@ -235,23 +235,19 @@ COMMIT;
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
+    parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
-    if not args.database_url:
-        raise ValueError("DATABASE_URL or --database-url is required")
     plants = read_opsd(ROOT / "data/raw/opsd_conventional_power_plants_de.csv")
     roads = read_roads(ROOT / "data/raw/nrw_infrastructure/transport/Verkehrswerte_EPSG25832_Shape.zip")
     renewables = read_renewables(
         ROOT / "data/raw/nrw_infrastructure/renewables/Standorte-Strom-EE-NRW_EPSG25832_GeoPackage.zip"
     )
-    run_psql(
-        args.database_url,
-        [
-            (ROOT / "db/nrw_schema.sql").read_text(encoding="utf-8"),
-            build_import_script(plants, roads, renewables),
-            (ROOT / "db/nrw_analytics.sql").read_text(encoding="utf-8"),
-        ],
+    if args.check_only:
+        return
+    raise ValueError(
+        "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
+        "to publish a complete atomic seed."
     )
-    print(f"loaded OPSD={len(plants)}, roads={len(roads)}, renewables={len(renewables)}")
 
 
 if __name__ == "__main__":
