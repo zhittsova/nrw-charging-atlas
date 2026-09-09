@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -93,6 +94,62 @@ class EnergyImportScriptTest(unittest.TestCase):
         self.assertIn("DELETE FROM raw.renewable_balance_municipal", sql)
         self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_local_energy_balance", sql)
         self.assertTrue(sql.rstrip().endswith("COMMIT;"))
+
+
+class NumericBoundaryTest(unittest.TestCase):
+    """`pd.notna` is true for both infinities, so it cannot decide finiteness."""
+
+    def test_infinite_readings_are_refused(self) -> None:
+        for value in (math.inf, -math.inf, float("inf")):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "must be finite"):
+                    loader._number(value, field="Stromverbrauch (GWh)")
+
+    def test_a_missing_reading_stays_unknown_but_may_be_required(self) -> None:
+        self.assertIsNone(loader._number(None, field="industry_gwh"))
+        self.assertIsNone(loader._number(float("nan"), field="industry_gwh"))
+        with self.assertRaisesRegex(ValueError, "is missing"):
+            loader._number(None, field="consumption_gwh", allow_missing=False)
+
+    def test_a_measured_zero_is_a_value(self) -> None:
+        self.assertEqual(loader._number(0.0, field="consumption_gwh"), 0.0)
+
+    def test_a_group_total_is_unavailable_when_a_member_is_unknown(self) -> None:
+        row = pd.Series({"Wind: Leistung (MW)": 1.0, "PV: Bauliche Anlagen Leistung (MW)": None})
+        self.assertIsNone(
+            loader._sum_columns(row, ["Wind: Leistung (MW)", "PV: Bauliche Anlagen Leistung (MW)"])
+        )
+
+    def test_a_missing_yield_with_no_installed_capacity_is_a_real_zero(self) -> None:
+        """The source leaves the yield cell empty where capacity is 0."""
+        row = pd.Series(
+            {
+                "Biomasse: Stromertrag (MWh)": 10.0,
+                "Biomasse: Leistung (MW)": 1.0,
+                "Deponiegas: Stromertrag (MWh)": None,
+                "Deponiegas: Leistung (MW)": 0.0,
+            }
+        )
+        total, unknown = loader._sum_generation(
+            row, ["Biomasse: Stromertrag (MWh)", "Deponiegas: Stromertrag (MWh)"]
+        )
+        self.assertEqual(total, 10.0)
+        self.assertEqual(unknown, 0)
+
+    def test_a_missing_yield_with_installed_capacity_is_unknown(self) -> None:
+        row = pd.Series(
+            {
+                "Biomasse: Stromertrag (MWh)": 10.0,
+                "Biomasse: Leistung (MW)": 1.0,
+                "Klärgas: Stromertrag (MWh)": None,
+                "Klärgas: Leistung (MW)": 3.0,
+            }
+        )
+        total, unknown = loader._sum_generation(
+            row, ["Biomasse: Stromertrag (MWh)", "Klärgas: Stromertrag (MWh)"]
+        )
+        self.assertIsNone(total)
+        self.assertEqual(unknown, 1)
 
 
 if __name__ == "__main__":

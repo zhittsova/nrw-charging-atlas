@@ -30,5 +30,26 @@ class RenewableImportTest(unittest.TestCase):
         self.assertIn("Example Wind GmbH", sql)
 
 
+class TrafficImportTest(unittest.TestCase):
+    def test_the_counting_station_type_reaches_the_import(self) -> None:
+        road = {
+            "source_id": "abs|zst|0|100",
+            "road_class": "B",
+            "name": "B7",
+            "road_number": 7,
+            "traffic_total": 12000,
+            "traffic_light": 11400,
+            "traffic_heavy": 600,
+            "counting_station_type": "automatische Dauerzählstelle",
+            "source": "Straßen.NRW Verkehrswerte",
+            "geom_json": '{"type":"LineString","coordinates":[[7.0,51.0],[7.1,51.0]]}',
+        }
+
+        sql = loader.build_import_script([], [road], [])
+
+        self.assertIn("counting_station_type", sql)
+        self.assertIn("automatische Dauerzählstelle", sql)
+
+
 if __name__ == "__main__":
     unittest.main()
