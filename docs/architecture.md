@@ -25,3 +25,38 @@ The dashboard supports official baseline data and local proposed-station
 scenarios. Official records remain read-only. Grid indicators describe mapped
 infrastructure context and do not measure distribution-network hosting
 capacity.
+
+## The analytical score model
+
+PostGIS is the only scoring implementation. Each analytical domain is split in
+two: a materialized view holding the measurements that need spatial work
+(`analytics.nrw_transport_raw`, `nrw_grid_proxy_raw`, `nrw_renewable_raw`,
+`nrw_energy_balance_raw`, and `nrw_district_metrics` in the schema document),
+and live views that normalize and weight them. A score is therefore never
+stored beside components it could disagree with.
+
+Normalization is `analytics.normalize_5_95`: clip the measurement into the 5th
+and 95th percentile of the official baseline, then map it onto 0-100, inverting
+where a larger measurement is worse. Equal bounds give 50. A missing
+measurement gives no score, and no weight is ever redistributed onto the
+components that remain.
+
+Every published score is rounded to one decimal, and every composite is the
+weighted sum of its published components, rounded again. That makes each
+composite reproducible by hand from the numbers shown next to it.
+
+`analytics.nrw_score_model`, published as `publish.nrw_score_model`, states the
+whole model as data: one row per weighted term, with the component it weights,
+its weight and constant, the measured quantity and unit behind it, and that
+measurement's official baseline bounds. `db/verify_nrw_analytics.sql`
+recomputes every district's composites from that relation, so the published
+model and the SQL cannot drift apart unnoticed.
+
+The readiness density is charging points per km2. Stations per km2 remains
+published as separately named station-density context and feeds no score.
+
+`analytics.nrw_formula_version` carries the version these outputs were produced
+by, and it travels on the canonical district projection together with the
+population reference year, the energy reporting year and the charging-register
+snapshot date. Version `nrw-2026.09.1` replaced an unversioned model that
+normalized station density and weighted composites from unrounded components.

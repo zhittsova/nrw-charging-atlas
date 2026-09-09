@@ -8,6 +8,7 @@ import math
 import os
 import subprocess
 from collections.abc import Callable, Iterable
+from datetime import date
 from pathlib import Path
 
 from config_utils import ROOT
@@ -122,6 +123,31 @@ def read_chargers(path: Path) -> list[dict]:
     return _unique_rows(_read_feature_collection(path), charger_row, "source_id", "charger")
 
 
+def read_source_snapshot(path: Path) -> dict[str, str] | None:
+    """Return the publication date the generated charger snapshot carries.
+
+    The date is a property of the file the loader consumed, so it is recorded
+    once per source rather than copied onto every station.  A snapshot without a
+    readable date returns None: the published date then says it was not
+    recorded, and no substitute is invented.
+    """
+    document = json.loads(path.read_text(encoding="utf-8"))
+    snapshot_date = document.get("snapshot_date")
+    if snapshot_date is None:
+        return None
+    if not isinstance(snapshot_date, str):
+        raise ValueError(f"{path} has a non-string snapshot_date")
+    try:
+        parsed = date.fromisoformat(snapshot_date)
+    except ValueError as error:
+        raise ValueError(f"{path} has an invalid snapshot_date: {snapshot_date}") from error
+    return {
+        "source_key": str(document.get("source_key") or "bnetza_ladesaeulenregister"),
+        "snapshot_date": parsed.isoformat(),
+        "source_name": str(document.get("source_name") or "Bundesnetzagentur Ladesaeulenregister"),
+    }
+
+
 def validate_snapshot(admin_regions: list[dict], chargers: list[dict], expected_admin_count: int = 53) -> None:
     if not chargers:
         raise ValueError("Charging snapshot is empty; refusing destructive synchronization")
@@ -145,9 +171,53 @@ def _copy_block(table: str, columns: tuple[str, ...], rows: list[dict]) -> str:
     )
 
 
-def build_import_script(admin_regions: list[dict], chargers: list[dict]) -> str:
+def _source_snapshot_block(snapshot: dict[str, str] | None) -> str:
+    """Record, or explicitly clear, the ingested source's publication date.
+
+    A load whose snapshot states no date removes any earlier row instead of
+    leaving the previous date attached to the new data.
+    """
+    if snapshot is None:
+        return (
+            "DELETE FROM raw.source_snapshots\n"
+            "WHERE source_key = 'bnetza_ladesaeulenregister';\n"
+        )
+    values = _copy_block(
+        "import_source_snapshots",
+        ("source_key", "snapshot_date", "source_name"),
+        [snapshot],
+    )
+    return f"""CREATE TEMP TABLE import_source_snapshots (
+    source_key text NOT NULL,
+    snapshot_date date NOT NULL,
+    source_name text
+) ON COMMIT DROP;
+{values}
+INSERT INTO raw.source_snapshots (source_key, snapshot_date, source_name, source_note)
+SELECT
+    source_key,
+    snapshot_date,
+    source_name,
+    'Stated in the register preamble as "Letzte Aktualisierung vom"'
+FROM import_source_snapshots
+ON CONFLICT (source_key) DO UPDATE
+SET
+    snapshot_date = EXCLUDED.snapshot_date,
+    source_name = EXCLUDED.source_name,
+    source_note = EXCLUDED.source_note,
+    recorded_at = now();
+"""
+
+
+def build_import_script(
+    admin_regions: list[dict],
+    chargers: list[dict],
+    *,
+    source_snapshot: dict[str, str] | None = None,
+) -> str:
     admin_copy = _copy_block("import_admin_regions", ADMIN_COLUMNS, admin_regions)
     charger_copy = _copy_block("import_chargers", CHARGER_COLUMNS, chargers)
+    snapshot_block = _source_snapshot_block(source_snapshot)
     return f"""BEGIN;
 CREATE TEMP TABLE import_admin_regions (
     nuts_code text NOT NULL,
@@ -246,6 +316,7 @@ WHERE NOT EXISTS (
     WHERE incoming.source_id = existing.source_id
 );
 
+{snapshot_block}
 REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;
 COMMIT;
 """
@@ -293,6 +364,7 @@ def main() -> None:
     args = parse_args()
     admin_regions = read_admin_regions(args.regions)
     chargers = read_chargers(args.chargers)
+    source_snapshot = read_source_snapshot(args.chargers)
     validate_snapshot(admin_regions, chargers)
 
     print(f"validated {len(admin_regions)} NRW admin regions")
@@ -308,11 +380,15 @@ def main() -> None:
         args.database_url,
         [
             f"BEGIN;\n{schema_sql}\nCOMMIT;\n",
-            build_import_script(admin_regions, chargers),
+            build_import_script(admin_regions, chargers, source_snapshot=source_snapshot),
             analytics_sql,
         ],
     )
     print("loaded raw.admin_regions and raw.chargers")
+    print(
+        "charger snapshot date: "
+        + (source_snapshot["snapshot_date"] if source_snapshot else "not recorded by the snapshot")
+    )
 
 
 if __name__ == "__main__":

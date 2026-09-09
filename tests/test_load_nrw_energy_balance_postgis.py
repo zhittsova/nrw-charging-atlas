@@ -92,7 +92,7 @@ class EnergyImportScriptTest(unittest.TestCase):
         self.assertTrue(sql.startswith("BEGIN;"))
         self.assertIn("DELETE FROM raw.energy_consumption_municipal", sql)
         self.assertIn("DELETE FROM raw.renewable_balance_municipal", sql)
-        self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_local_energy_balance", sql)
+        self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_energy_balance_raw", sql)
         self.assertTrue(sql.rstrip().endswith("COMMIT;"))
 
 

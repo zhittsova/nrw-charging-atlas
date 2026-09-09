@@ -199,6 +199,19 @@ BEFORE INSERT OR UPDATE ON scenario.proposed_chargers
 FOR EACH ROW
 EXECUTE FUNCTION scenario.validate_proposed_charger();
 
+-- Provenance of each ingested source snapshot.  The publication date of a
+-- source is a property of the file the loader consumed, not of any district, so
+-- it is recorded once per source key and joined into the published projections.
+-- A source whose ingestion does not yet capture a date simply has no row: the
+-- published date is then NULL with a stated reason rather than a guess.
+CREATE TABLE IF NOT EXISTS raw.source_snapshots (
+    source_key text PRIMARY KEY,
+    snapshot_date date,
+    source_name text,
+    source_note text,
+    recorded_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS raw.population (
     district_code text,
     nuts_code text,
@@ -469,6 +482,11 @@ SELECT
     d.district_name,
     ST_Area(d.geom_25832) / 1000000.0 AS area_km2,
     p.population,
+    -- The population figure is only interpretable with the year it describes,
+    -- so the reference year and the registry it came from travel with it into
+    -- every district projection (contract C02, manifest 9.3).
+    p.reference_year AS population_source_year,
+    p.source AS population_source,
     COUNT(c.source_id) AS chargers_total,
     COALESCE(
         SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.source_id IS NOT NULL),
@@ -497,15 +515,20 @@ LEFT JOIN LATERAL (
 LEFT JOIN raw.population p
   ON p.nuts_code = d.nuts_code OR p.ags = d.ags
 GROUP BY d.nuts_code, d.ags, d.district_name, p.population,
+         p.reference_year, p.source,
          nearest.distance_to_nearest_charger_m, d.geom, d.geom_25832;
 
-CREATE OR REPLACE VIEW analytics.nrw_priority_scores AS
-SELECT *
-FROM analytics.nrw_district_metrics;
-
-CREATE OR REPLACE VIEW publish.nrw_district_priority AS
-SELECT *
-FROM analytics.nrw_priority_scores;
+-- publish.nrw_district_priority used to be defined twice with different
+-- columns: here over analytics.nrw_priority_scores (bare district counts) and
+-- again in db/nrw_analytics.sql over the scored baseline, so whichever document
+-- ran last decided what the published layer meant (finding F20).  The scored
+-- definition is the authoritative one and now lives only in db/nrw_analytics.sql.
+-- Both obsolete relations are dropped here so an upgraded installation cannot
+-- keep serving the unscored layout; the analytics document recreates the single
+-- canonical view in the same load.  No CASCADE: if an unknown dependant exists
+-- the upgrade aborts and rolls back rather than destroying it.
+DROP VIEW IF EXISTS publish.nrw_district_priority;
+DROP VIEW IF EXISTS analytics.nrw_priority_scores;
 
 -- Historical published column layouts ------------------------------------
 --

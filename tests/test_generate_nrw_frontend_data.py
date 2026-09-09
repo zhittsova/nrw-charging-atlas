@@ -69,7 +69,10 @@ class ChargingPowerParsingTest(unittest.TestCase):
     def test_load_fixture_preserves_aggregate_and_derived_maximum_independently(self) -> None:
         csv_text = "\n".join(
             [
-                *(["header"] * 10),
+                *(["header"] * 7),
+                "Letzte Aktualisierung vom: 22.04.2026;;;",
+                "header",
+                "header",
                 ";".join(
                     [
                         "Bundesland",
@@ -109,7 +112,7 @@ class ChargingPowerParsingTest(unittest.TestCase):
             source = root / "fixture.csv"
             source.write_text(csv_text, encoding="cp1252")
             with patch.object(generator, "ROOT", root):
-                chargers = generator.load_nrw_chargers(
+                chargers, snapshot_date = generator.load_nrw_chargers(
                     {"raw_bnetza_path": "fixture.csv", "region_name": "Nordrhein-Westfalen"}
                 )
 
@@ -118,6 +121,30 @@ class ChargingPowerParsingTest(unittest.TestCase):
         self.assertEqual(properties["power_kw"], 44.0)
         self.assertEqual(properties["max_point_power_kw"], 22.0)
         self.assertEqual(properties["charging_points"], 2)
+        # The register's own publication date is the only provenance the file
+        # carries, and it is read from the preamble rather than invented.
+        self.assertEqual(snapshot_date, "2026-04-22")
+
+    def test_snapshot_date_is_read_from_the_register_preamble(self) -> None:
+        self.assertEqual(
+            generator.parse_charger_snapshot_date(
+                "Ladesaeulenregister\nLetzte Aktualisierung vom: 22.04.2026;;;\n"
+            ),
+            "2026-04-22",
+        )
+        self.assertEqual(
+            generator.parse_charger_snapshot_date("letzte  aktualisierung  vom:31.12.2025"),
+            "2025-12-31",
+        )
+
+    def test_an_unreadable_snapshot_date_is_unknown_rather_than_substituted(self) -> None:
+        for preamble in (
+            "Ladesaeulenregister Bundesnetzagentur",
+            "Letzte Aktualisierung vom: 31.02.2026",
+            "Letzte Aktualisierung vom: 2026-04-22",
+        ):
+            with self.subTest(preamble):
+                self.assertIsNone(generator.parse_charger_snapshot_date(preamble))
 
     def test_threshold_is_exactly_50_and_unknown_is_not_normal(self) -> None:
         self.assertTrue(generator.is_fast_power(50.0))
@@ -168,6 +195,16 @@ class GeneratedOutputTest(unittest.TestCase):
         self.assertNotIn(b"\r\n", exception_bytes)
         self.assertEqual(reader.fieldnames, list(quality.EXCEPTION_FIELDS))
         self.assertEqual(rows[0]["reason"], "outside_nrw")
+
+    def test_generated_chargers_carry_the_source_snapshot_date(self) -> None:
+        collection = generator.charger_collection([accepted_charger("a", "DEA01")], "2026-04-22")
+        self.assertEqual(collection["source_key"], "bnetza_ladesaeulenregister")
+        self.assertEqual(collection["snapshot_date"], "2026-04-22")
+
+    def test_an_unknown_snapshot_date_is_written_as_null_rather_than_omitted(self) -> None:
+        collection = generator.charger_collection([accepted_charger("a", "DEA01")], None)
+        self.assertIn("snapshot_date", collection)
+        self.assertIsNone(collection["snapshot_date"])
 
     def test_district_totals_must_equal_accepted_feature_count(self) -> None:
         with self.assertRaisesRegex(ValueError, "District station totals"):

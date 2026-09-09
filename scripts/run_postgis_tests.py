@@ -29,6 +29,7 @@ INTEGRATION_SUITES = (
     "tests/integration/test_nrw_schema_migration.py",
     "tests/integration/test_nrw_missing_data_semantics.py",
     "tests/integration/test_nrw_verification_modules.py",
+    "tests/integration/test_nrw_score_model.py",
 )
 
 

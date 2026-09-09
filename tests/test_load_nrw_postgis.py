@@ -145,5 +145,74 @@ class ImportScriptTest(unittest.TestCase):
             )
 
 
+
+class SourceSnapshotTest(unittest.TestCase):
+    """The register's publication date is provenance, not a per-station field."""
+
+    def _write(self, document: dict) -> Path:
+        directory = tempfile.mkdtemp()
+        path = Path(directory) / "chargers.geojson"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def test_reads_the_snapshot_date_the_generator_recorded(self) -> None:
+        path = self._write(
+            {
+                "type": "FeatureCollection",
+                "source_key": "bnetza_ladesaeulenregister",
+                "source_name": "Bundesnetzagentur Ladesaeulenregister",
+                "snapshot_date": "2026-04-22",
+                "features": [charger()],
+            }
+        )
+
+        self.assertEqual(
+            loader.read_source_snapshot(path),
+            {
+                "source_key": "bnetza_ladesaeulenregister",
+                "snapshot_date": "2026-04-22",
+                "source_name": "Bundesnetzagentur Ladesaeulenregister",
+            },
+        )
+
+    def test_a_missing_snapshot_date_stays_unknown(self) -> None:
+        path = self._write(
+            {"type": "FeatureCollection", "snapshot_date": None, "features": [charger()]}
+        )
+        self.assertIsNone(loader.read_source_snapshot(path))
+
+    def test_an_invalid_snapshot_date_is_rejected_rather_than_ignored(self) -> None:
+        path = self._write(
+            {"type": "FeatureCollection", "snapshot_date": "22.04.2026", "features": [charger()]}
+        )
+        with self.assertRaisesRegex(ValueError, "invalid snapshot_date"):
+            loader.read_source_snapshot(path)
+
+    def test_a_load_without_a_date_clears_the_previous_one(self) -> None:
+        """A stale date attached to fresh data would be worse than none."""
+        sql = loader.build_import_script(
+            [loader.admin_row(region())],
+            [loader.charger_row(charger())],
+            source_snapshot=None,
+        )
+
+        self.assertIn("DELETE FROM raw.source_snapshots", sql)
+        self.assertNotIn("INSERT INTO raw.source_snapshots", sql)
+
+    def test_a_recorded_date_is_upserted_for_its_source_key(self) -> None:
+        sql = loader.build_import_script(
+            [loader.admin_row(region())],
+            [loader.charger_row(charger())],
+            source_snapshot={
+                "source_key": "bnetza_ladesaeulenregister",
+                "snapshot_date": "2026-04-22",
+                "source_name": "Bundesnetzagentur Ladesaeulenregister",
+            },
+        )
+
+        self.assertIn("INSERT INTO raw.source_snapshots", sql)
+        self.assertIn("ON CONFLICT (source_key) DO UPDATE", sql)
+        self.assertIn("2026-04-22", sql)
+
 if __name__ == "__main__":
     unittest.main()

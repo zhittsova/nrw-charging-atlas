@@ -1,3 +1,18 @@
+"""Pre-database screening metrics. **Not** the project's scoring model.
+
+This script predates PostGIS analytics.  Its min-max normalization, its
+`charging_supply_score` and the `investment_priority_score` derived from it are
+not the agreed model and never were: the one authoritative implementation is
+`analytics.nrw_ev_baseline_metrics` in `db/nrw_analytics.sql`, published as
+`publish.nrw_ev_baseline_metrics` with its weights and bounds in
+`publish.nrw_score_model` (findings F09, F43).
+
+It is kept only because the parallel Streamlit dashboard still reads its
+`data/processed/` output, which nothing else consumes.  Retiring both is owned
+by S21, after the canonical replacement is verified; nothing here may be used
+as a fallback for a canonical score in the meantime.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

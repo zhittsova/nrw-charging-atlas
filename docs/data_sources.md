@@ -19,6 +19,27 @@ notes, local targets, and download limits:
 | Conventional plants | Open Power System Data | Generation context |
 | Power infrastructure | Geofabrik NRW OpenStreetMap extract | Grid-readiness proxy |
 
+## Source snapshot dates
+
+A published figure is only interpretable with the date of the data behind it,
+so each source's own stated date is carried into the database rather than
+inferred from a download time.
+
+The Ladesäulenregister states its publication date in the preamble above the
+header row, for example `Letzte Aktualisierung vom: 22.04.2026`.
+`scripts/generate_nrw_frontend_data.py` reads it, writes it onto the generated
+station collection as `snapshot_date`, and `scripts/load_nrw_postgis.py` records
+it in `raw.source_snapshots` under the key `bnetza_ladesaeulenregister`. The
+canonical district projection publishes it as `charger_snapshot_date`. A file
+whose preamble carries no readable date leaves the field NULL with
+`charger_snapshot_unavailable_reason`; no substitute date is invented, and a
+load without a date clears any earlier one rather than leaving a stale date
+attached to new data.
+
+The population reference year travels the same way, from
+`raw.population.reference_year` to `population_source_year`, and the energy
+reporting year from the municipal aggregation to `energy_reporting_year`.
+
 ## Traffic measure
 
 Verified against the publisher's own field description, *Open Data -
