@@ -11,6 +11,11 @@ uv run pytest -q tests --ignore=tests/integration
 This is the default fast suite. It has no Docker, database, network, or
 `data/raw` requirement. Parser fixtures are deliberately synthetic and
 labelled under `tests/fixtures/`; they are not source data.
+`tests/fixtures/projected_geometry.py` is an independent EPSG:25832 oracle used
+to check spatial results without restating the SQL that produced them, and
+`tests/fixtures/geometry_cases.py` is a shared catalogue of polygon topology
+cases whose GEOS verdicts are proved in `tests/test_geometry_cases.py` and
+cross-checked against PostGIS in the SQL suite.
 
 ## Required PostGIS suite
 
@@ -19,11 +24,18 @@ uv run python -m scripts.run_postgis_tests
 ```
 
 This starts a randomly named `nrw_test_<id>` PostGIS database on its own
-explicit `127.0.0.1:<random-port>` endpoint, runs the two SQL integration
-modules (currently 11 tests), then forcibly removes only its container and its
+explicit `127.0.0.1:<random-port>` endpoint, runs the four SQL integration
+modules (currently 41 tests), then forcibly removes only its container and its
 uniquely named temporary data volume. It does not use the project database.
 The command is required integration coverage: a missing Docker daemon, `psql`,
 image, or database readiness is an error, not a skip.
+
+`test_nrw_spatial_semantics.py` covers the projected nearest-feature
+selection, the Strassen.NRW road-class mapping and district containment; each of
+its classes resets the schemas and loads its own fixture.
+`test_nrw_schema_migration.py` starts from a reconstruction of the older
+published column layout instead of a fresh schema, because the upgrade contract
+only fails on a database that predates a column.
 
 Do not invoke the SQL modules directly with a hand-written database URL. The
 runner provides a current random run ID and exact loopback endpoint alongside

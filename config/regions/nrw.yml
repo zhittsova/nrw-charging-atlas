@@ -16,6 +16,14 @@ major_road_classes:
   - trunk
   - primary
   - secondary
+# Strassen.NRW supplies STRKL source classes, not OpenStreetMap highway values.
+# staging.normalize_road_class in db/nrw_schema.sql applies this mapping before
+# major_road_classes is compared, so the accessibility layer is not empty.
+road_class_source_mapping:
+  - A=motorway
+  - B=primary
+  - L=secondary
+  - K=tertiary
 frontend_region_file: data/nrw_regions_sample.geojson
 frontend_charger_file: data/nrw_charging_stations_sample.geojson
 raw_nuts3_path: data/raw/nuts3_regions_gisco_2024.geojson
