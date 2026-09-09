@@ -38,6 +38,27 @@ DROP VIEW IF EXISTS analytics.nrw_ev_baseline_metrics;
 DROP VIEW IF EXISTS analytics.nrw_ev_baseline_bounds;
 DROP VIEW IF EXISTS analytics.nrw_ev_baseline_raw;
 
+-- What the traffic measure actually is, taken from the publisher's own field
+-- description (Open Data - Datenbeschreibung zum Datenbestand Strassennetz
+-- Landesbetrieb Strassenbau NRW, 02.07.2025, "Verkehrswerte"):
+--   DTVKFZA "Wert der durchschnittlichen taeglichen Verkehrsstaerke (DTV) fuer
+--            KFZ-Verkehr alle Tage"
+--   DTVLVA  "DTV-Wert fuer Leichtverkehr alle Tage (Krad, PKW und Lieferwagen)"
+--   DTVSVA  "DTV-Wert fuer Schwerverkehr alle Tage (Busse, LKW >3,5t zul. GG
+--            und Lastzuege)"
+-- The same document states that Autobahn data is no longer included, which is
+-- why the counted network covers Bundes-, Landes- and Kreisstrassen only.
+CREATE OR REPLACE VIEW analytics.nrw_traffic_assumptions AS
+SELECT
+    'DTVKFZA'::text AS traffic_measure_field,
+    'Average daily traffic volume, all motor vehicles, all days'::text AS traffic_measure,
+    'vehicles per day'::text AS traffic_measure_unit,
+    'Bundes-, Landes- and Kreisstrassen; Autobahn traffic is not part of this source'::text
+        AS traffic_network_scope,
+    'Strassen.NRW Verkehrswerte (Strassenverkehrszaehlung SVZ)'::text AS traffic_source,
+    'Open Data - Datenbeschreibung Strassennetz Landesbetrieb Strassenbau NRW, 02.07.2025'::text
+        AS traffic_source_documentation;
+
 CREATE MATERIALIZED VIEW analytics.nrw_transport_metrics AS
 WITH road_parts AS (
     SELECT
@@ -51,6 +72,13 @@ aggregated AS (
     SELECT
         d.nuts_code,
         COALESCE(SUM(p.length_km), 0) AS traffic_road_length_km,
+        -- A section whose counting station published no value contributes
+        -- length but no traffic, so the measured share has to travel with the
+        -- metric instead of the absence quietly lowering it.
+        COALESCE(SUM(p.length_km) FILTER (WHERE p.traffic_total IS NOT NULL), 0)
+            AS traffic_measured_length_km,
+        SUM(p.length_km) FILTER (WHERE p.traffic_total IS NOT NULL)
+            / NULLIF(SUM(p.length_km), 0) AS traffic_length_coverage,
         SUM(p.length_km * p.traffic_total)
             / NULLIF(SUM(p.length_km) FILTER (WHERE p.traffic_total IS NOT NULL), 0)
             AS traffic_intensity_dtv,
@@ -99,7 +127,13 @@ SELECT
             a.distance_to_nearest_road_m, b.distance_low, b.distance_high, true
         ),
         1
-    ) AS transport_load_score
+    ) AS transport_load_score,
+    CASE
+        WHEN a.traffic_road_length_km = 0 THEN 'no_counted_road_network'
+        WHEN a.traffic_measured_length_km = 0 THEN 'no_published_traffic_value'
+        WHEN a.traffic_length_coverage < 1 THEN 'partial_traffic_coverage'
+        ELSE 'complete_traffic_coverage'
+    END AS transport_data_quality_flag
 FROM aggregated a
 CROSS JOIN bounds b;
 
@@ -111,13 +145,26 @@ WITH parsed_grid AS (
     SELECT
         g.*,
         (
-            SELECT MAX(
-                CASE
-                    WHEN token ~* 'kv' THEN NULLIF(substring(token FROM '([0-9]+(?:\.[0-9]+)?)'), '')::numeric
-                    ELSE NULLIF(substring(token FROM '([0-9]+(?:\.[0-9]+)?)'), '')::numeric / 1000.0
-                END
-            )
-            FROM regexp_split_to_table(COALESCE(g.voltage, ''), ';') AS token
+            -- An untagged, unparseable or non-positive OpenStreetMap voltage is
+            -- an unknown voltage, not a measured zero (contract C03).
+            --
+            -- The whole token has to match a recognised form.  An unsigned
+            -- substring search would read "-110000" as 110 kV and would accept
+            -- any number embedded in arbitrary text, so a negative or malformed
+            -- tag would become positive measured evidence.  Semicolon-separated
+            -- tags keep their valid parts: the highest usable value wins.
+            SELECT MAX(parsed.voltage_kv)
+            FROM (
+                SELECT
+                    CASE
+                        WHEN btrim(token) ~ '^-?[0-9]+(\.[0-9]+)?$'
+                        THEN btrim(token)::numeric / 1000.0
+                        WHEN btrim(token) ~* '^-?[0-9]+(\.[0-9]+)?[[:space:]]*kv$'
+                        THEN substring(btrim(token) FROM '^(-?[0-9]+(?:\.[0-9]+)?)')::numeric
+                    END AS voltage_kv
+                FROM regexp_split_to_table(COALESCE(g.voltage, ''), ';') AS token
+            ) parsed
+            WHERE parsed.voltage_kv > 0
         ) AS voltage_kv
     FROM raw.grid_infrastructure g
 ),
@@ -135,6 +182,8 @@ line_agg AS (
     SELECT
         nuts_code,
         SUM(length_km) AS grid_line_length_km,
+        SUM(length_km) FILTER (WHERE voltage_kv IS NOT NULL)
+            AS grid_line_length_km_known_voltage,
         SUM(length_km * voltage_kv) AS voltage_weighted_line_kv_km,
         COUNT(*) AS grid_line_segments,
         COUNT(voltage_kv)::numeric / NULLIF(COUNT(*), 0) AS line_voltage_coverage
@@ -157,12 +206,18 @@ aggregated AS (
     SELECT
         d.nuts_code,
         COALESCE(l.grid_line_length_km, 0) AS grid_line_length_km,
+        COALESCE(l.grid_line_length_km_known_voltage, 0)
+            AS grid_line_length_km_known_voltage,
         COALESCE(l.grid_line_segments, 0) AS grid_line_segments,
         COALESCE(s.substation_count, 0) AS substation_count,
         s.maximum_mapped_voltage_kv,
         l.line_voltage_coverage,
         s.substation_voltage_coverage,
-        COALESCE(l.voltage_weighted_line_kv_km, 0) / NULLIF(m.area_km2, 0)
+        -- No COALESCE to zero: with no voltage-tagged line anywhere in the
+        -- district there is no voltage evidence at all, so the component is
+        -- unavailable and the proxy composite stays unavailable with it rather
+        -- than being computed from an invented zero.
+        l.voltage_weighted_line_kv_km / NULLIF(m.area_km2, 0)
             AS voltage_weighted_line_density,
         COALESCE(s.substation_count, 0) / NULLIF(m.area_km2, 0) AS substation_density,
         nearest.distance_to_nearest_substation_m
@@ -201,7 +256,19 @@ SELECT
             a.substation_density, b.substation_low, b.substation_high
         ),
         1
-    ) AS grid_readiness_proxy_score
+    ) AS grid_readiness_proxy_score,
+    -- The flag has to explain every reason the proxy can be unavailable, not
+    -- only the voltage one: substation proximity carries 45% of the score, so
+    -- an unmapped substation leaves it unavailable just as an untagged line
+    -- does.  The first three values are exactly the cases where the score is
+    -- NULL; partial voltage coverage is published together with its coverage.
+    CASE
+        WHEN a.distance_to_nearest_substation_m IS NULL THEN 'no_mapped_substation'
+        WHEN a.grid_line_segments = 0 THEN 'no_mapped_grid_lines'
+        WHEN COALESCE(a.line_voltage_coverage, 0) = 0 THEN 'unknown_line_voltage'
+        WHEN a.line_voltage_coverage < 1 THEN 'partial_line_voltage'
+        ELSE 'complete_grid_inputs'
+    END AS grid_data_quality_flag
 FROM aggregated a
 CROSS JOIN bounds b;
 
@@ -269,37 +336,77 @@ WITH reporting AS (
           AND wind_capacity_mw IS NOT NULL
     ) r USING (year)
 ),
+-- Every municipality the source has ever reported for a district.  Coverage is
+-- measured against this universe so that a year missing a municipality is
+-- visible instead of silently producing a smaller district total.
+municipal_universe AS (
+    SELECT nuts_code, COUNT(DISTINCT ags) AS expected_municipalities
+    FROM (
+        SELECT nuts_code, ags FROM raw.energy_consumption_municipal
+        UNION
+        SELECT nuts_code, ags FROM raw.renewable_balance_municipal
+    ) municipalities
+    GROUP BY nuts_code
+),
 consumption AS (
     SELECT
         c.nuts_code,
-        SUM(c.consumption_gwh) * 1000.0 AS consumption_mwh
+        COUNT(*) FILTER (WHERE c.consumption_gwh IS NOT NULL) AS municipalities_reported,
+        SUM(c.consumption_gwh) * 1000.0 AS consumption_mwh_reported,
+        MIN(c.source) AS energy_source
     FROM raw.energy_consumption_municipal c
     CROSS JOIN reporting y
     WHERE c.year = y.reporting_year
     GROUP BY c.nuts_code
 ),
+-- Each published total is gated by the coverage of the field it is actually
+-- made of.  Generation and wind capacity together feed the balance ratio, while
+-- installed renewable capacity is separate context: a municipality can report
+-- its yield and wind capacity while its total technology capacity is unknown,
+-- and summing over that gap would publish a short total as a complete one.
 renewable_stock AS (
     SELECT
         r.nuts_code,
-        SUM(r.published_generation_mwh) AS published_generation_mwh,
-        SUM(r.wind_capacity_mw) AS wind_capacity_mw,
-        SUM(r.renewable_capacity_mw) AS renewable_capacity_mw
+        COUNT(*) FILTER (
+            WHERE r.published_generation_mwh IS NOT NULL AND r.wind_capacity_mw IS NOT NULL
+        ) AS municipalities_reported,
+        COUNT(*) FILTER (WHERE r.renewable_capacity_mw IS NOT NULL)
+            AS capacity_municipalities_reported,
+        SUM(r.published_generation_mwh) AS published_generation_mwh_reported,
+        SUM(r.wind_capacity_mw) AS wind_capacity_mw_reported,
+        SUM(r.renewable_capacity_mw) AS renewable_capacity_mw_reported,
+        COALESCE(SUM(r.generation_components_unknown), 0) AS generation_components_unknown
     FROM raw.renewable_balance_municipal r
     CROSS JOIN reporting y
     WHERE r.year = y.reporting_year
     GROUP BY r.nuts_code
 ),
-renewable_growth AS (
+-- Three-year growth needs the complete required series: a year counts only when
+-- every expected municipality reported a net addition for it.
+growth_by_year AS (
     SELECT
         r.nuts_code,
-        SUM(r.renewable_net_addition_mw) AS renewable_net_addition_3y_mw
+        r.year,
+        COUNT(*) FILTER (WHERE r.renewable_net_addition_mw IS NOT NULL)
+            AS municipalities_reported,
+        SUM(r.renewable_net_addition_mw) AS net_addition_mw
     FROM raw.renewable_balance_municipal r
     CROSS JOIN reporting y
     CROSS JOIN analytics.nrw_energy_assumptions a
     WHERE r.year BETWEEN
         y.reporting_year - (a.renewable_growth_window_years - 1)
         AND y.reporting_year
-    GROUP BY r.nuts_code
+    GROUP BY r.nuts_code, r.year
+),
+renewable_growth AS (
+    SELECT
+        g.nuts_code,
+        COUNT(*) FILTER (WHERE g.municipalities_reported = u.expected_municipalities)
+            AS growth_years_reported,
+        SUM(g.net_addition_mw) AS net_addition_3y_mw_reported
+    FROM growth_by_year g
+    JOIN municipal_universe u USING (nuts_code)
+    GROUP BY g.nuts_code
 ),
 raw_metrics AS (
     SELECT
@@ -308,21 +415,33 @@ raw_metrics AS (
         d.district_name,
         y.reporting_year,
         m.area_km2,
-        c.consumption_mwh,
-        s.published_generation_mwh,
-        s.wind_capacity_mw,
-        s.wind_capacity_mw * a.wind_full_load_hours AS estimated_wind_generation_mwh,
-        s.published_generation_mwh
-            + s.wind_capacity_mw * a.wind_full_load_hours
+        u.expected_municipalities,
+        COALESCE(c.municipalities_reported, 0) AS consumption_municipalities_reported,
+        COALESCE(s.municipalities_reported, 0) AS renewable_municipalities_reported,
+        COALESCE(s.capacity_municipalities_reported, 0)
+            AS renewable_capacity_municipalities_reported,
+        a.renewable_growth_window_years AS growth_years_required,
+        COALESCE(g.growth_years_reported, 0) AS growth_years_reported,
+        COALESCE(s.generation_components_unknown, 0) AS generation_components_unknown,
+        c.energy_source,
+        -- A partial municipal sum is never published as a complete district
+        -- total (contract C03); it becomes unavailable with a stated reason.
+        consumption_complete.value AS consumption_mwh,
+        stock_complete.published_generation_mwh,
+        stock_complete.wind_capacity_mw,
+        stock_complete.wind_capacity_mw * a.wind_full_load_hours
+            AS estimated_wind_generation_mwh,
+        stock_complete.published_generation_mwh
+            + stock_complete.wind_capacity_mw * a.wind_full_load_hours
             AS total_renewable_generation_mwh,
-        s.renewable_capacity_mw,
-        g.renewable_net_addition_3y_mw,
-        g.renewable_net_addition_3y_mw / NULLIF(m.area_km2, 0)
+        stock_complete.renewable_capacity_mw,
+        growth_complete.value AS renewable_net_addition_3y_mw,
+        growth_complete.value / NULLIF(m.area_km2, 0)
             AS renewable_growth_density_mw_per_km2,
         (
-            s.published_generation_mwh
-            + s.wind_capacity_mw * a.wind_full_load_hours
-        ) / NULLIF(c.consumption_mwh, 0) AS renewable_balance_ratio,
+            stock_complete.published_generation_mwh
+            + stock_complete.wind_capacity_mw * a.wind_full_load_hours
+        ) / NULLIF(consumption_complete.value, 0) AS renewable_balance_ratio,
         p.grid_readiness_proxy_score,
         a.wind_full_load_hours,
         d.geom
@@ -330,10 +449,42 @@ raw_metrics AS (
     CROSS JOIN reporting y
     CROSS JOIN analytics.nrw_energy_assumptions a
     JOIN analytics.nrw_district_metrics m USING (nuts_code)
+    LEFT JOIN municipal_universe u USING (nuts_code)
     LEFT JOIN consumption c USING (nuts_code)
     LEFT JOIN renewable_stock s USING (nuts_code)
     LEFT JOIN renewable_growth g USING (nuts_code)
     LEFT JOIN analytics.nrw_grid_proxy_metrics p USING (nuts_code)
+    CROSS JOIN LATERAL (
+        SELECT CASE
+            WHEN c.municipalities_reported IS NOT NULL
+             AND c.municipalities_reported = u.expected_municipalities
+            THEN c.consumption_mwh_reported
+        END AS value
+    ) consumption_complete
+    CROSS JOIN LATERAL (
+        SELECT
+            CASE WHEN completeness.generation_complete
+                 THEN s.published_generation_mwh_reported END AS published_generation_mwh,
+            CASE WHEN completeness.generation_complete
+                 THEN s.wind_capacity_mw_reported END AS wind_capacity_mw,
+            CASE WHEN completeness.capacity_complete
+                 THEN s.renewable_capacity_mw_reported END AS renewable_capacity_mw
+        FROM (
+            SELECT
+                s.municipalities_reported IS NOT NULL
+                    AND s.municipalities_reported = u.expected_municipalities
+                    AS generation_complete,
+                s.capacity_municipalities_reported IS NOT NULL
+                    AND s.capacity_municipalities_reported = u.expected_municipalities
+                    AS capacity_complete
+        ) completeness
+    ) stock_complete
+    CROSS JOIN LATERAL (
+        SELECT CASE
+            WHEN g.growth_years_reported = a.renewable_growth_window_years
+            THEN g.net_addition_3y_mw_reported
+        END AS value
+    ) growth_complete
 ),
 bounds AS (
     SELECT
@@ -369,6 +520,20 @@ SELECT
     district_name,
     reporting_year,
     area_km2,
+    expected_municipalities,
+    consumption_municipalities_reported,
+    consumption_municipalities_reported::numeric
+        / NULLIF(expected_municipalities, 0) AS consumption_municipal_coverage,
+    renewable_municipalities_reported,
+    renewable_municipalities_reported::numeric
+        / NULLIF(expected_municipalities, 0) AS renewable_municipal_coverage,
+    renewable_capacity_municipalities_reported,
+    renewable_capacity_municipalities_reported::numeric
+        / NULLIF(expected_municipalities, 0) AS renewable_capacity_coverage,
+    growth_years_required,
+    growth_years_reported,
+    generation_components_unknown,
+    energy_source,
     consumption_mwh,
     published_generation_mwh,
     estimated_wind_generation_mwh,
@@ -407,6 +572,28 @@ SELECT
         WHEN wind_capacity_mw > 0 THEN 'hybrid_complete'
         ELSE 'published_complete_no_wind'
     END AS energy_data_quality_flag,
+    -- Why a required input is unavailable, in the order the aggregation
+    -- discovers it, so the interface can explain the gap instead of showing a
+    -- bare em dash (contract C03; consumed by S15).
+    CASE
+        WHEN expected_municipalities IS NULL THEN 'no_municipal_energy_data'
+        WHEN consumption_mwh IS NULL THEN 'incomplete_consumption_coverage'
+        -- A fully reported consumption of zero is a measured value, kept as
+        -- published, but nothing can be divided by it: the ratio and every
+        -- score built on it are unavailable for a stated reason rather than
+        -- silently missing.
+        WHEN consumption_mwh <= 0 THEN 'zero_consumption_denominator'
+        WHEN published_generation_mwh IS NULL OR wind_capacity_mw IS NULL
+            THEN 'incomplete_renewable_coverage'
+        WHEN renewable_net_addition_3y_mw IS NULL THEN 'incomplete_growth_window'
+        WHEN grid_readiness_proxy_score IS NULL THEN 'unavailable_grid_readiness_proxy'
+    END AS energy_unavailable_reason,
+    -- Installed capacity is context rather than a composite input, so its own
+    -- coverage decides its availability without invalidating a known yield.
+    CASE
+        WHEN expected_municipalities IS NULL THEN 'no_municipal_energy_data'
+        WHEN renewable_capacity_mw IS NULL THEN 'incomplete_capacity_coverage'
+    END AS renewable_capacity_unavailable_reason,
     wind_full_load_hours,
     geom
 FROM scored;
@@ -823,11 +1010,28 @@ SELECT
     ags,
     district_name,
     reporting_year,
+    energy_source,
+    expected_municipalities,
+    consumption_municipalities_reported,
+    consumption_municipal_coverage,
+    renewable_municipalities_reported,
+    renewable_municipal_coverage,
+    renewable_capacity_municipalities_reported,
+    renewable_capacity_coverage,
+    renewable_capacity_unavailable_reason,
+    growth_years_required,
+    growth_years_reported,
+    generation_components_unknown,
+    energy_unavailable_reason,
     consumption_mwh,
     published_generation_mwh,
     estimated_wind_generation_mwh,
     total_renewable_generation_mwh,
     renewable_capacity_mw,
+    -- The growth window travels with its own coverage counts so a consumer can
+    -- say why a three-year figure is unavailable instead of showing nothing.
+    renewable_net_addition_3y_mw,
+    renewable_growth_density_mw_per_km2,
     renewable_balance_ratio,
     renewable_coverage_pct,
     local_energy_balance_score,
@@ -836,12 +1040,16 @@ SELECT
     geom
 FROM analytics.nrw_local_energy_balance;
 
+CREATE OR REPLACE VIEW publish.nrw_traffic_assumptions AS
+SELECT * FROM analytics.nrw_traffic_assumptions;
+
 CREATE OR REPLACE VIEW publish.nrw_grid_absorption_risk AS
 SELECT
     nuts_code,
     ags,
     district_name,
     reporting_year,
+    energy_unavailable_reason,
     renewable_net_addition_3y_mw,
     renewable_growth_density_mw_per_km2,
     renewable_growth_score,

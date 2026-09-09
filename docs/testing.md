@@ -24,8 +24,8 @@ uv run python -m scripts.run_postgis_tests
 ```
 
 This starts a randomly named `nrw_test_<id>` PostGIS database on its own
-explicit `127.0.0.1:<random-port>` endpoint, runs the four SQL integration
-modules (currently 41 tests), then forcibly removes only its container and its
+explicit `127.0.0.1:<random-port>` endpoint, runs the six SQL integration
+modules (currently 64 tests), then forcibly removes only its container and its
 uniquely named temporary data volume. It does not use the project database.
 The command is required integration coverage: a missing Docker daemon, `psql`,
 image, or database readiness is an error, not a skip.
@@ -36,6 +36,15 @@ its classes resets the schemas and loads its own fixture.
 `test_nrw_schema_migration.py` starts from a reconstruction of the older
 published column layout instead of a fresh schema, because the upgrade contract
 only fails on a database that predates a column.
+`test_nrw_missing_data_semantics.py` checks the energy, grid-voltage and traffic
+coverage rules against `tests/fixtures/energy_coverage_cases.py`, whose expected
+district roll-ups are derived by hand and proved self-consistent in
+`tests/test_energy_coverage_cases.py`, and the voltage-tag catalogue in
+`tests/fixtures/voltage_tag_cases.py`.
+`test_nrw_verification_modules.py` builds a full 53-district fixture and
+executes `db/verify_nrw_analytics.sql` and `db/verify_nrw_energy_balance.sql`
+for real, including a district whose consumption is a measured zero, and proves
+each module rejects quality metadata that contradicts its own data.
 
 Do not invoke the SQL modules directly with a hand-written database URL. The
 runner provides a current random run ID and exact loopback endpoint alongside

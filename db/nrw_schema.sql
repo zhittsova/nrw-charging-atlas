@@ -216,6 +216,9 @@ CREATE TABLE IF NOT EXISTS raw.roads (
     traffic_total numeric,
     traffic_light numeric,
     traffic_heavy numeric,
+    -- Straßen.NRW ZSTART: automatic permanent, temporary, or manual SVZ
+    -- station.  Kept so that an unavailable traffic value stays auditable.
+    counting_station_type text,
     source text,
     geom geometry(LineString, 4326),
     geom_25832 geometry(LineString, 25832)
@@ -227,6 +230,7 @@ ALTER TABLE raw.roads ADD COLUMN IF NOT EXISTS traffic_total numeric;
 ALTER TABLE raw.roads ADD COLUMN IF NOT EXISTS traffic_light numeric;
 ALTER TABLE raw.roads ADD COLUMN IF NOT EXISTS traffic_heavy numeric;
 ALTER TABLE raw.roads ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE raw.roads ADD COLUMN IF NOT EXISTS counting_station_type text;
 ALTER TABLE raw.roads ADD COLUMN IF NOT EXISTS geom_25832 geometry(LineString, 25832)
     GENERATED ALWAYS AS (ST_Transform(geom, 25832)) STORED;
 
@@ -318,12 +322,64 @@ CREATE TABLE IF NOT EXISTS raw.renewable_balance_municipal (
     nuts_code text NOT NULL,
     ags text NOT NULL,
     published_generation_mwh numeric,
+    -- How many technology yields were installed but unpublished for this
+    -- municipality.  A positive count is why published_generation_mwh is NULL;
+    -- it is not a value and must never be treated as one.
+    generation_components_unknown integer,
     wind_capacity_mw numeric,
     renewable_capacity_mw numeric,
     renewable_net_addition_mw numeric,
     source text NOT NULL,
     PRIMARY KEY (year, ags)
 );
+
+ALTER TABLE raw.renewable_balance_municipal
+    ADD COLUMN IF NOT EXISTS generation_components_unknown integer;
+
+-- Reject non-finite readings at the boundary (contract C03).  numeric accepts
+-- NaN and Infinity, so a bad source value would otherwise reach an aggregate
+-- and poison it silently.  The constraints are added NOT VALID so an upgrade
+-- never fails on data already in the user's installation; every subsequent
+-- write is still checked, and the loaders replace these tables wholesale.
+DO $$
+DECLARE
+    target record;
+BEGIN
+    FOR target IN
+        SELECT *
+        FROM (VALUES
+            ('energy_consumption_municipal', 'energy_consumption_finite_chk',
+             ARRAY['consumption_gwh', 'industry_gwh', 'commerce_services_gwh', 'households_gwh']),
+            ('renewable_balance_municipal', 'renewable_balance_finite_chk',
+             ARRAY['published_generation_mwh', 'wind_capacity_mw',
+                   'renewable_capacity_mw', 'renewable_net_addition_mw'])
+        ) AS t(table_name, constraint_name, numeric_columns)
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = target.constraint_name
+              AND conrelid = format('raw.%I', target.table_name)::regclass
+        ) THEN
+            EXECUTE format(
+                'ALTER TABLE raw.%I ADD CONSTRAINT %I CHECK (%s) NOT VALID',
+                target.table_name,
+                target.constraint_name,
+                (
+                    SELECT string_agg(
+                        format(
+                            '(%1$I IS NULL OR %1$I NOT IN'
+                            ' (''NaN''::numeric, ''Infinity''::numeric, ''-Infinity''::numeric))',
+                            column_name
+                        ),
+                        ' AND '
+                    )
+                    FROM unnest(target.numeric_columns) AS column_name
+                )
+            );
+        END IF;
+    END LOOP;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS raw_energy_consumption_nuts_year_idx
     ON raw.energy_consumption_municipal (nuts_code, year);
