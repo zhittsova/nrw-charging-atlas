@@ -41,6 +41,14 @@ coverage rules against `tests/fixtures/energy_coverage_cases.py`, whose expected
 district roll-ups are derived by hand and proved self-consistent in
 `tests/test_energy_coverage_cases.py`, and the voltage-tag catalogue in
 `tests/fixtures/voltage_tag_cases.py`.
+`test_nrw_score_model.py` checks the canonical score model against
+`tests/fixtures/score_model_cases.py`, an expectation catalogue derived from the
+written contract rather than from the SQL and proved self-consistent in
+`tests/test_score_model_catalogue.py`. Its six-district fixture is arranged so
+that one district has no mapped grid line, one has no charging station, one pair
+mirrors the other about the UTM zone 32 central meridian to produce a genuine
+rank tie, and every district has exactly one renewable technology so the
+equal-bound rule has to return 50.
 `test_nrw_verification_modules.py` builds a full 53-district fixture and
 executes `db/verify_nrw_analytics.sql` and `db/verify_nrw_energy_balance.sql`
 for real, including a district whose consumption is a measured zero, and proves

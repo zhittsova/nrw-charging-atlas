@@ -402,7 +402,9 @@ WHERE NOT EXISTS (
     WHERE incoming.year = existing.year AND incoming.ags = existing.ags
 );
 
-REFRESH MATERIALIZED VIEW analytics.nrw_local_energy_balance;
+-- analytics.nrw_local_energy_balance is a live view over this measurement:
+-- refreshing the measurement is what republishes the scores built on it.
+REFRESH MATERIALIZED VIEW analytics.nrw_energy_balance_raw;
 COMMIT;
 """
 

@@ -1,14 +1,59 @@
+"""Generate the bootstrap frontend snapshot from the raw source files.
+
+The counts, classifications and provenance this script writes are real.  The
+score-shaped properties it also writes -- `chargingSupplyScore`,
+`investmentPriorityScore`, `chargerDeficitScore`, `priorityRank` and
+`priorityTier` -- are **not** the project's model: they are a
+largest-district-normalized placeholder from before PostGIS analytics existed,
+and they are labelled in the dashboard as though they were the documented
+formula (finding F09).
+
+The one authoritative implementation is `publish.nrw_ev_baseline_metrics`.
+S11 exports that projection, S13 makes the dashboard read it, and S21 removes
+these placeholder properties once no consumer is left.  Nothing here may be
+treated as a canonical score in the meantime.
+"""
+
 from __future__ import annotations
 
 import csv
 import io
 import json
 import math
+import re
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from config_utils import ROOT, read_simple_region_config
 from nrw_charger_quality import EXCEPTION_FIELDS, assert_reconciled, classify_chargers
+
+
+# The BNetzA register states its own publication date in the preamble above the
+# header row, for example "Letzte Aktualisierung vom: 22.04.2026".  Nothing else
+# in the download carries it, so it is read here and travels with the generated
+# snapshot into raw.source_snapshots (manifest 9.3).
+CHARGER_PREAMBLE_ROWS = 10
+CHARGER_SNAPSHOT_PATTERN = re.compile(
+    r"Letzte\s+Aktualisierung\s+vom:\s*(\d{2})\.(\d{2})\.(\d{4})",
+    re.IGNORECASE,
+)
+
+
+def parse_charger_snapshot_date(preamble: str) -> str | None:
+    """Return the register's publication date as ISO-8601, or None if absent.
+
+    An unreadable or missing preamble date is an unknown snapshot date, never a
+    substitute such as the download time or today.
+    """
+    match = CHARGER_SNAPSHOT_PATTERN.search(preamble)
+    if not match:
+        return None
+    day, month, year = (int(part) for part in match.groups())
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
 
 
 def parse_decimal(value: str) -> float | None:
@@ -103,11 +148,11 @@ def load_nrw_regions(config: dict[str, object]) -> list[dict]:
     return regions
 
 
-def load_nrw_chargers(config: dict[str, object]) -> list[dict]:
+def load_nrw_chargers(config: dict[str, object]) -> tuple[list[dict], str | None]:
     with (ROOT / str(config["raw_bnetza_path"])).open(encoding="cp1252", errors="replace") as file:
-        for _ in range(10):
-            next(file)
+        preamble = "".join(next(file) for _ in range(CHARGER_PREAMBLE_ROWS))
         rows = list(csv.DictReader(file, delimiter=";"))
+    snapshot_date = parse_charger_snapshot_date(preamble)
 
     features = []
     for row in rows:
@@ -138,7 +183,7 @@ def load_nrw_chargers(config: dict[str, object]) -> list[dict]:
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
             }
         )
-    return features
+    return features, snapshot_date
 
 
 def enrich_regions_with_counts(regions: list[dict], chargers: list[dict]) -> list[dict]:
@@ -226,6 +271,22 @@ def _write_temporary_text(target: Path, content: str) -> Path:
         return Path(file.name)
 
 
+def charger_collection(accepted: list[dict], snapshot_date: str | None) -> dict:
+    """Wrap the accepted stations, carrying the register's own publication date.
+
+    The key is always present so a consumer can tell "unknown" from "not
+    reported at all"; its value is null when the preamble had no readable date.
+    """
+    return {
+        "type": "FeatureCollection",
+        "name": "nrw_bnetza_chargers",
+        "source_key": "bnetza_ladesaeulenregister",
+        "source_name": "Bundesnetzagentur Ladesaeulenregister",
+        "snapshot_date": snapshot_date,
+        "features": accepted,
+    }
+
+
 def write_outputs_atomically(
     regions: list[dict],
     accepted: list[dict],
@@ -234,13 +295,14 @@ def write_outputs_atomically(
     region_path: Path,
     charger_path: Path,
     exception_path: Path,
+    charger_snapshot_date: str | None = None,
 ) -> None:
     region_content = json.dumps(
         {"type": "FeatureCollection", "name": "nrw_nuts3_regions", "features": regions},
         indent=2,
     )
     charger_content = json.dumps(
-        {"type": "FeatureCollection", "name": "nrw_bnetza_chargers", "features": accepted},
+        charger_collection(accepted, charger_snapshot_date),
         indent=2,
     )
     exception_buffer = io.StringIO(newline="")
@@ -273,6 +335,7 @@ def generate_validated_outputs(
     region_path: Path,
     charger_path: Path,
     exception_path: Path,
+    charger_snapshot_date: str | None = None,
 ) -> None:
     region_codes = {region["properties"]["nuts_code"] for region in regions}
     assert_reconciled(source_count, accepted, rejected, region_codes)
@@ -284,6 +347,7 @@ def generate_validated_outputs(
         region_path=region_path,
         charger_path=charger_path,
         exception_path=exception_path,
+        charger_snapshot_date=charger_snapshot_date,
     )
 
 
@@ -295,7 +359,7 @@ def main() -> None:
     if len(regions) != 53 or len(region_codes) != 53:
         raise ValueError(f"Expected 53 unique NRW districts, found {len(regions)} features and {len(region_codes)} codes")
 
-    candidates = load_nrw_chargers(config)
+    candidates, snapshot_date = load_nrw_chargers(config)
     accepted, rejected = classify_chargers(candidates, regions)
     regions = enrich_regions_with_counts(regions, accepted)
     generate_validated_outputs(
@@ -306,10 +370,12 @@ def main() -> None:
         region_path=data_dir / "nrw_regions_sample.geojson",
         charger_path=data_dir / "nrw_charging_stations_sample.geojson",
         exception_path=ROOT / "data" / "quality" / "nrw_charger_exceptions.csv",
+        charger_snapshot_date=snapshot_date,
     )
     print(f"wrote {len(regions)} NRW NUTS-3 regions")
     print(f"wrote {len(accepted)} valid NRW BNetzA charger records")
     print(f"wrote {len(rejected)} charger exceptions")
+    print(f"BNetzA register snapshot date: {snapshot_date or 'not stated in the source preamble'}")
 
 
 if __name__ == "__main__":

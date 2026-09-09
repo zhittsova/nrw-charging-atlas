@@ -245,7 +245,7 @@ class VerificationModuleTest(unittest.TestCase):
         """Prove the module fails, not just that it passes on good data."""
         self.addCleanup(self.build)
         self.psql(
-            "ALTER MATERIALIZED VIEW analytics.nrw_local_energy_balance"
+            "ALTER VIEW analytics.nrw_local_energy_balance"
             " RENAME TO nrw_local_energy_balance_real;"
             " CREATE VIEW analytics.nrw_local_energy_balance AS"
             " SELECT nuts_code, ags, district_name, reporting_year, area_km2,"
@@ -289,14 +289,16 @@ class VerificationModuleTest(unittest.TestCase):
 
         # Claiming the inputs are complete while the score is missing must fail.
         self.psql(
-            "ALTER MATERIALIZED VIEW analytics.nrw_grid_proxy_metrics"
+            "ALTER VIEW analytics.nrw_grid_proxy_metrics"
             " RENAME TO nrw_grid_proxy_metrics_real;"
             " CREATE VIEW analytics.nrw_grid_proxy_metrics AS"
             " SELECT nuts_code, grid_line_length_km, grid_line_length_km_known_voltage,"
             "        grid_line_segments, substation_count, maximum_mapped_voltage_kv,"
             "        line_voltage_coverage, substation_voltage_coverage,"
             "        voltage_weighted_line_density, substation_density,"
-            "        distance_to_nearest_substation_m, grid_readiness_proxy_score,"
+            "        distance_to_nearest_substation_m, substation_proximity_score,"
+            "        voltage_line_density_score, substation_density_score,"
+            "        grid_readiness_proxy_score,"
             "        'complete_grid_inputs'::text AS grid_data_quality_flag"
             " FROM analytics.nrw_grid_proxy_metrics_real;"
         )
