@@ -32,19 +32,14 @@ class ProjectStackTest(unittest.TestCase):
         run.assert_called_once_with(["docker", "compose", "run"], check=True)
 
     @patch("project_stack.run_etl")
-    def test_seed_rebuilds_all_data_domains_then_reapplies_grants(self, run_etl) -> None:
+    def test_seed_uses_one_atomic_refresh_then_reapplies_grants(self, run_etl) -> None:
         project_stack.seed_database(population_snapshot=None)
 
         self.assertEqual(
             run_etl.call_args_list,
             [
                 call("scripts/initialize_nrw_database.py"),
-                call("scripts/load_nrw_postgis.py"),
-                call("scripts/load_nrw_population_postgis.py"),
-                call("scripts/load_nrw_infrastructure_postgis.py"),
-                call("scripts/load_nrw_grid_postgis.py"),
-                call("scripts/load_nrw_road_network_postgis.py"),
-                call("scripts/load_nrw_energy_balance_postgis.py"),
+                call("scripts/refresh_nrw_database.py"),
                 call("scripts/initialize_nrw_database.py", "--grant-only"),
             ],
         )
@@ -57,8 +52,8 @@ class ProjectStackTest(unittest.TestCase):
 
         self.assertIn(
             call(
-                "scripts/load_nrw_population_postgis.py",
-                "--snapshot",
+                "scripts/refresh_nrw_database.py",
+                "--population-snapshot",
                 "/app/data/raw/eurostat_population_nrw.json",
             ),
             run_etl.call_args_list,

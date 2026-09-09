@@ -79,7 +79,7 @@ class EnergyWorkbookPreparationTest(unittest.TestCase):
 
 
 class EnergyImportScriptTest(unittest.TestCase):
-    def test_snapshot_sync_is_transactional_and_refreshes_analytics(self) -> None:
+    def test_snapshot_sync_is_transactional_without_a_per_source_analytics_refresh(self) -> None:
         consumption, renewables, reporting_year = loader.prepare_energy_snapshots(
             fixture.consumption_frame(),
             fixture.renewable_stock_frame(),
@@ -92,7 +92,7 @@ class EnergyImportScriptTest(unittest.TestCase):
         self.assertTrue(sql.startswith("BEGIN;"))
         self.assertIn("DELETE FROM raw.energy_consumption_municipal", sql)
         self.assertIn("DELETE FROM raw.renewable_balance_municipal", sql)
-        self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_energy_balance_raw", sql)
+        self.assertNotIn("REFRESH MATERIALIZED VIEW", sql)
         self.assertTrue(sql.rstrip().endswith("COMMIT;"))
 
 

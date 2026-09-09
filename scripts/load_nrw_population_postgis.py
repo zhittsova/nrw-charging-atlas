@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from config_utils import ROOT
-from load_nrw_postgis import _copy_block, read_admin_regions, run_psql
+from load_nrw_postgis import _copy_block, read_raw_seed_snapshot
 
 
 API = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/demo_r_pjanaggr3"
@@ -83,7 +83,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.database_url:
         raise ValueError("DATABASE_URL or --database-url is required")
-    regions = read_admin_regions(ROOT / "frontend/data/nrw_regions_sample.geojson")
+    regions, _, _ = read_raw_seed_snapshot()
     expected_codes = {str(region["nuts_code"]) for region in regions}
     if args.snapshot:
         rows = read_population_snapshot(args.snapshot, expected_codes=expected_codes)
@@ -108,15 +108,12 @@ TRUNCATE raw.population;
 INSERT INTO raw.population
 SELECT district_code, nuts_code, NULLIF(ags, ''), population, reference_year, source
 FROM import_population;
-REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;
 COMMIT;
 """
-    run_psql(
-        args.database_url,
-        [sql, (ROOT / "db/nrw_analytics.sql").read_text(encoding="utf-8")],
+    raise ValueError(
+        "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
+        "to publish a complete atomic seed."
     )
-    print(f"loaded population for {len(rows)} districts; years {min(r['reference_year'] for r in rows)}-"
-          f"{max(r['reference_year'] for r in rows)}")
 
 
 if __name__ == "__main__":

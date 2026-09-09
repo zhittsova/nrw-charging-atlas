@@ -40,21 +40,16 @@ def fetch_data() -> None:
 
 
 def seed_database(*, population_snapshot: Path | None = POPULATION_SNAPSHOT) -> None:
-    """Rebuild the project database from validated source snapshots."""
+    """Validate all raw sources, then publish exactly one atomic refresh."""
     run_etl("scripts/initialize_nrw_database.py")
-    run_etl("scripts/load_nrw_postgis.py")
     if population_snapshot is not None and population_snapshot.is_file():
         run_etl(
-            "scripts/load_nrw_population_postgis.py",
-            "--snapshot",
+            "scripts/refresh_nrw_database.py",
+            "--population-snapshot",
             CONTAINER_POPULATION_SNAPSHOT,
         )
     else:
-        run_etl("scripts/load_nrw_population_postgis.py")
-    run_etl("scripts/load_nrw_infrastructure_postgis.py")
-    run_etl("scripts/load_nrw_grid_postgis.py")
-    run_etl("scripts/load_nrw_road_network_postgis.py")
-    run_etl("scripts/load_nrw_energy_balance_postgis.py")
+        run_etl("scripts/refresh_nrw_database.py")
     run_etl("scripts/initialize_nrw_database.py", "--grant-only")
 
 

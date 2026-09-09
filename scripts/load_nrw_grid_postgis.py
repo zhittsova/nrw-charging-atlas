@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 from config_utils import ROOT
-from load_nrw_postgis import _copy_block, run_psql
+from load_nrw_postgis import _copy_block
 
 
 GRID_PBF = ROOT / "data/raw/nrw_infrastructure/grid/nordrhein-westfalen-latest.osm.pbf"
@@ -114,15 +114,10 @@ def main() -> None:
         return
     if not args.database_url:
         raise ValueError("DATABASE_URL or --database-url is required unless --check-only is used")
-    run_psql(
-        args.database_url,
-        [
-            (ROOT / "db/nrw_schema.sql").read_text(encoding="utf-8"),
-            build_import_script(rows),
-            (ROOT / "db/nrw_analytics.sql").read_text(encoding="utf-8"),
-        ],
+    raise ValueError(
+        "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
+        "to publish a complete atomic seed."
     )
-    print("loaded raw.grid_infrastructure")
 
 
 if __name__ == "__main__":
