@@ -1,3 +1,8 @@
+-- Applied as one transaction: the refresh below drops every analytical
+-- materialized view with CASCADE before rebuilding it, so a partial run would
+-- otherwise leave the installation without its published analytics.
+BEGIN;
+
 CREATE OR REPLACE FUNCTION analytics.normalize_5_95(
     metric double precision,
     lower_bound double precision,
@@ -37,9 +42,7 @@ CREATE MATERIALIZED VIEW analytics.nrw_transport_metrics AS
 WITH road_parts AS (
     SELECT
         d.nuts_code,
-        ST_Length(
-            ST_Intersection(ST_Transform(d.geom, 25832), ST_Transform(r.geom, 25832))
-        ) / 1000.0 AS length_km,
+        ST_Length(ST_Intersection(d.geom_25832, r.geom_25832)) / 1000.0 AS length_km,
         r.traffic_total
     FROM staging.nrw_districts d
     JOIN raw.roads r ON ST_Intersects(d.geom, r.geom)
@@ -58,12 +61,11 @@ aggregated AS (
     JOIN analytics.nrw_district_metrics m USING (nuts_code)
     LEFT JOIN road_parts p USING (nuts_code)
     LEFT JOIN LATERAL (
-        SELECT ST_Distance(
-            ST_Centroid(ST_Transform(d.geom, 25832)),
-            ST_Transform(r.geom, 25832)
-        ) AS distance_to_nearest_road_m
+        -- Projected KNN ordering and projected measurement, so the reported
+        -- distance belongs to the road that is actually nearest in metres.
+        SELECT ST_Distance(d.centroid_25832, r.geom_25832) AS distance_to_nearest_road_m
         FROM raw.roads r
-        ORDER BY ST_Centroid(d.geom) <-> r.geom
+        ORDER BY d.centroid_25832 <-> r.geom_25832
         LIMIT 1
     ) nearest ON true
     GROUP BY d.nuts_code, m.area_km2, nearest.distance_to_nearest_road_m
@@ -122,9 +124,7 @@ WITH parsed_grid AS (
 line_parts AS (
     SELECT
         d.nuts_code,
-        ST_Length(
-            ST_Intersection(ST_Transform(d.geom, 25832), ST_Transform(g.geom, 25832))
-        ) / 1000.0 AS length_km,
+        ST_Length(ST_Intersection(d.geom_25832, g.geom_25832)) / 1000.0 AS length_km,
         g.voltage_kv
     FROM staging.nrw_districts d
     JOIN parsed_grid g
@@ -171,13 +171,10 @@ aggregated AS (
     LEFT JOIN line_agg l USING (nuts_code)
     LEFT JOIN substation_agg s USING (nuts_code)
     LEFT JOIN LATERAL (
-        SELECT ST_Distance(
-            ST_Centroid(ST_Transform(d.geom, 25832)),
-            ST_Transform(g.geom, 25832)
-        ) AS distance_to_nearest_substation_m
+        SELECT ST_Distance(d.centroid_25832, g.geom_25832) AS distance_to_nearest_substation_m
         FROM raw.grid_infrastructure g
         WHERE g.asset_type IN ('substation', 'transformer')
-        ORDER BY ST_Centroid(d.geom) <-> g.geom
+        ORDER BY d.centroid_25832 <-> g.geom_25832
         LIMIT 1
     ) nearest ON true
 ),
@@ -571,18 +568,33 @@ FROM scored s;
 CREATE OR REPLACE VIEW analytics.nrw_ev_scenario_metrics AS
 WITH effective_chargers AS (
     SELECT
+        'official:' || c.source_id AS feature_id,
         c.charging_points,
         c.power_kw,
         c.max_point_power_kw,
-        c.geom
+        c.geom,
+        c.geom_25832
     FROM raw.chargers c
     UNION ALL
     SELECT
+        'proposal:' || p.id::text,
         p.charging_points,
         p.power_kw,
         p.max_point_power_kw,
-        p.geom
+        p.geom,
+        p.geom_25832
     FROM scenario.proposed_chargers p
+),
+-- Same single-district rule as the baseline: a station on a shared boundary is
+-- covered by both neighbours and would otherwise be counted twice.
+effective_charger_districts AS (
+    SELECT DISTINCT ON (c.feature_id)
+        c.feature_id,
+        d.nuts_code
+    FROM effective_chargers c
+    JOIN staging.nrw_districts d
+      ON ST_Covers(d.geom, c.geom)
+    ORDER BY c.feature_id, d.nuts_code
 ),
 scenario_raw AS (
     SELECT
@@ -591,20 +603,20 @@ scenario_raw AS (
         d.district_name,
         m.area_km2,
         m.population,
-        COUNT(c.geom) AS chargers_total,
+        COUNT(c.feature_id) AS chargers_total,
         COALESCE(
-            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.geom IS NOT NULL),
+            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.feature_id IS NOT NULL),
             0
         ) AS charging_points_total,
-        COUNT(c.geom) FILTER (WHERE c.max_point_power_kw >= 50)
+        COUNT(c.feature_id) FILTER (WHERE c.max_point_power_kw >= 50)
             AS fast_chargers_total,
-        COUNT(c.geom) FILTER (WHERE c.max_point_power_kw < 50)
+        COUNT(c.feature_id) FILTER (WHERE c.max_point_power_kw < 50)
             AS normal_chargers_total,
-        COUNT(c.geom) FILTER (WHERE c.max_point_power_kw IS NULL)
+        COUNT(c.feature_id) FILTER (WHERE c.max_point_power_kw IS NULL)
             AS unknown_power_chargers_total,
-        COUNT(c.geom) / NULLIF(m.area_km2, 0) AS chargers_per_km2,
+        COUNT(c.feature_id) / NULLIF(m.area_km2, 0) AS chargers_per_km2,
         COALESCE(
-            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.geom IS NOT NULL),
+            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.feature_id IS NOT NULL),
             0
         ) * 100000.0 / NULLIF(m.population, 0)
             AS charging_points_per_100k_population,
@@ -612,14 +624,15 @@ scenario_raw AS (
         d.geom
     FROM staging.nrw_districts d
     JOIN analytics.nrw_district_metrics m USING (nuts_code)
-    LEFT JOIN effective_chargers c ON ST_Intersects(c.geom, d.geom)
+    LEFT JOIN effective_charger_districts a ON a.nuts_code = d.nuts_code
+    LEFT JOIN effective_chargers c ON c.feature_id = a.feature_id
     LEFT JOIN LATERAL (
-        SELECT ST_Distance(
-            ST_Centroid(ST_Transform(d.geom, 25832)),
-            ST_Transform(cn.geom, 25832)
-        ) AS distance_to_nearest_charger_m
+        -- The scenario nearest station is selected and measured in EPSG:25832
+        -- exactly like the baseline, so a scenario delta never mixes a
+        -- degree-ordered selection with a metre-valued distance.
+        SELECT ST_Distance(d.centroid_25832, cn.geom_25832) AS distance_to_nearest_charger_m
         FROM effective_chargers cn
-        ORDER BY ST_Centroid(d.geom) <-> cn.geom
+        ORDER BY d.centroid_25832 <-> cn.geom_25832
         LIMIT 1
     ) nearest ON true
     GROUP BY
@@ -792,7 +805,7 @@ SELECT
     source,
     geom
 FROM raw.roads
-WHERE road_class IN ('B', 'L');
+WHERE staging.normalize_road_class(road_class) IN ('primary', 'secondary');
 
 CREATE OR REPLACE VIEW publish.nrw_grid_proxy AS
 SELECT d.*, a.geom
@@ -850,3 +863,5 @@ SELECT * FROM analytics.nrw_ev_scenario_metrics;
 
 CREATE OR REPLACE VIEW publish.nrw_district_priority AS
 SELECT * FROM analytics.nrw_ev_baseline_metrics;
+
+COMMIT;

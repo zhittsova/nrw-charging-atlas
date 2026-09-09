@@ -25,6 +25,8 @@ DEFAULT_POSTGIS_IMAGE = "geonode/postgis:15-3.5-latest"
 INTEGRATION_SUITES = (
     "tests/integration/test_nrw_scenario_database.py",
     "tests/integration/test_nrw_scenario_analytics.py",
+    "tests/integration/test_nrw_spatial_semantics.py",
+    "tests/integration/test_nrw_schema_migration.py",
 )
 
 

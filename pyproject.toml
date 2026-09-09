@@ -10,6 +10,8 @@ dependencies = [
   "pyarrow>=15",
   "python-dotenv>=1.0",
   "requests>=2.31",
+  # Used directly by scripts/nrw_charger_quality.py for GEOS topology validation.
+  "shapely>=2.0",
   "streamlit>=1.36",
 ]
 
@@ -23,5 +25,7 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
+    # Independent EPSG:25832 oracle for the spatial regression fixtures.
+    "pyproj>=3.6",
     "pytest>=9.1.1",
 ]

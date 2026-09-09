@@ -436,11 +436,13 @@ dependencies = [
     { name = "pyarrow" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "shapely" },
     { name = "streamlit" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "pyproj" },
     { name = "pytest" },
 ]
 
@@ -452,11 +454,15 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=15" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.31" },
+    { name = "shapely", specifier = ">=2.0" },
     { name = "streamlit", specifier = ">=1.36" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+dev = [
+    { name = "pyproj", specifier = ">=3.6" },
+    { name = "pytest", specifier = ">=9.1.1" },
+]
 
 [[package]]
 name = "numpy"

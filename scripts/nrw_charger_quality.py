@@ -4,6 +4,9 @@ import copy
 import math
 from collections.abc import Iterable
 
+from shapely.geometry import shape
+from shapely.validation import explain_validity
+
 
 EXCEPTION_FIELDS = (
     "id",
@@ -15,6 +18,68 @@ EXCEPTION_FIELDS = (
     "reason",
 )
 ALLOWED_REASONS = frozenset({"invalid_coordinates", "outside_nrw", "duplicate_id"})
+
+
+def _validate_ring(ring: object, *, district: str, role: str) -> list[list[float]]:
+    """Reject ring structure that is not even parseable as a polygon ring.
+
+    This is a precondition for the topology check in :func:`_validate_geometry`,
+    not a substitute for it: an unclosed or non-finite ring cannot be handed to
+    a geometry engine for a meaningful verdict.
+    """
+    if not isinstance(ring, list) or len(ring) < 4:
+        raise ValueError(f"District {district} has a {role} ring with fewer than four positions")
+    for position in ring:
+        if (
+            not isinstance(position, list)
+            or len(position) < 2
+            or isinstance(position[0], bool)
+            or isinstance(position[1], bool)
+            or not all(isinstance(value, (int, float)) for value in position[:2])
+            or not all(math.isfinite(float(value)) for value in position[:2])
+        ):
+            raise ValueError(f"District {district} has a non-finite {role} ring position")
+    if [float(value) for value in ring[0][:2]] != [float(value) for value in ring[-1][:2]]:
+        raise ValueError(f"District {district} has an unclosed {role} ring")
+    return ring
+
+
+def _validate_geometry(geometry: object, *, district: str) -> dict:
+    if not isinstance(geometry, dict):
+        raise ValueError(f"District {district} has no geometry")
+    geometry_type = geometry.get("type")
+    if geometry_type == "Polygon":
+        polygons = [geometry.get("coordinates")]
+    elif geometry_type == "MultiPolygon":
+        polygons = list(geometry.get("coordinates") or [])
+        if not polygons:
+            raise ValueError(f"District {district} has an empty MultiPolygon")
+    else:
+        raise ValueError(f"Unsupported district geometry: {geometry_type}")
+    for polygon in polygons:
+        if not isinstance(polygon, list) or not polygon:
+            raise ValueError(f"District {district} has a polygon without an exterior ring")
+        _validate_ring(polygon[0], district=district, role="exterior")
+        for hole in polygon[1:]:
+            _validate_ring(hole, district=district, role="interior")
+
+    # Structural checks above cannot see topology: a ring of four identical
+    # positions, a self-crossing "bow-tie" outline, a hole outside its shell and
+    # overlapping MultiPolygon parts are all well-formed lists and all invalid
+    # polygons.  Containment against such a shape is undefined, so the verdict
+    # comes from GEOS, the same engine PostGIS uses, rather than from another
+    # hand-written topology checker.  Invalid input is reported with the
+    # district and the engine's own reason; boundaries are never repaired,
+    # because silently rewriting a district outline would move the very
+    # boundary the assignment depends on.
+    outline = shape(geometry)
+    if outline.is_empty:
+        raise ValueError(f"District {district} has empty geometry")
+    if not outline.is_valid:
+        raise ValueError(
+            f"District {district} has invalid geometry: {explain_validity(outline)}"
+        )
+    return geometry
 
 
 def _point_on_segment(
@@ -133,6 +198,18 @@ def _exception(candidate: dict, reason: str) -> dict:
 
 
 def classify_chargers(candidates: list[dict], regions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Assign each source station to exactly one NRW district.
+
+    Containment follows the database's ``ST_Covers`` semantics: a point in a
+    polygon hole is outside, and a point on an exterior or hole boundary is
+    inside.  A point on a shared district boundary is covered by both
+    neighbours, so it is resolved deterministically to the lowest NUTS code,
+    the same rule as ``staging.nrw_charger_districts``.
+    """
+    for region in regions:
+        _validate_geometry(
+            region.get("geometry"), district=str(region["properties"].get("nuts_code"))
+        )
     region_index = [(region, _region_bbox(region)) for region in regions]
     seen_ids: set[str] = set()
     accepted: list[dict] = []
@@ -165,11 +242,12 @@ def classify_chargers(candidates: list[dict], regions: list[dict]) -> tuple[list
         if not matches:
             rejected.append(_exception(candidate, "outside_nrw"))
             continue
-        if len(matches) > 1:
-            raise ValueError(f"Charging record {station_id} matches multiple NRW districts")
 
         accepted_candidate = copy.deepcopy(candidate)
-        region_properties = matches[0]["properties"]
+        region_properties = min(
+            (match["properties"] for match in matches),
+            key=lambda properties: str(properties["nuts_code"]),
+        )
         accepted_candidate["properties"]["id"] = station_id
         accepted_candidate["properties"]["nuts_code"] = region_properties["nuts_code"]
         accepted_candidate["properties"]["district_name"] = region_properties["district_name"]
