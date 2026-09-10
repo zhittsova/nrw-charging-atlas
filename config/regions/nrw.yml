@@ -24,8 +24,8 @@ road_class_source_mapping:
   - B=primary
   - L=secondary
   - K=tertiary
-frontend_region_file: data/nrw_regions_sample.geojson
-frontend_charger_file: data/nrw_charging_stations_sample.geojson
+frontend_region_file: data/runtime/current/nrw_regions_sample.geojson
+frontend_charger_file: data/runtime/current/nrw_charging_stations_sample.geojson
 raw_nuts3_path: data/raw/nuts3_regions_gisco_2024.geojson
 raw_bnetza_path: data/raw/bnetza_ladesaeulenregister.csv
 processed_metrics_path: data/processed/nrw_district_metrics.geojson

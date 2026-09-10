@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +59,34 @@ class RoadNetworkPreparationTest(unittest.TestCase):
                 "geom_json": '{"type":"LineString","coordinates":[[7,51],[7.1,51.1]]}',
             }],
         )
+
+    def test_reads_real_osmium_type_id_feature_shape(self) -> None:
+        # `osmium export --add-unique-id type_id` uses compact feature IDs
+        # (for example w123), rather than an @id property.
+        document = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "id": "w123",
+                "properties": {"highway": "motorway", "ref": "A 3"},
+                "geometry": {"type": "LineString", "coordinates": [[7, 51], [7.1, 51.1]]},
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "roads.geojson"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            rows = module.read_road_geojson(path)
+
+        self.assertEqual(rows[0]["source_id"], "w123")
+
+    @patch("load_nrw_road_network_postgis.subprocess.run")
+    def test_extraction_requests_type_scoped_ids_for_real_osmium_features(self, run) -> None:
+        module.extract_road_geojson(Path("source.pbf"), Path("roads.geojson"))
+
+        export_command = run.call_args_list[1].args[0]
+        self.assertEqual(export_command[:2], ["osmium", "export"])
+        identity_option = export_command.index("--add-unique-id")
+        self.assertEqual(export_command[identity_option + 1], "type_id")
 
     def test_rejects_duplicate_ids_and_non_line_motorways(self) -> None:
         duplicate = {

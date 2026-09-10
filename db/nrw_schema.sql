@@ -212,6 +212,29 @@ CREATE TABLE IF NOT EXISTS raw.source_snapshots (
     recorded_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- A canonical refresh has one immutable identity for every raw input it
+-- consumed.  Runtime exports read this association from the same snapshot as
+-- the analytical views; they must never infer provenance from a subsequently
+-- refreshed local cache.
+CREATE TABLE IF NOT EXISTS raw.ingest_runs (
+    ingest_run_id uuid PRIMARY KEY,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
+    is_current boolean NOT NULL DEFAULT false
+);
+CREATE UNIQUE INDEX IF NOT EXISTS raw_one_current_ingest_run
+    ON raw.ingest_runs (is_current) WHERE is_current;
+
+CREATE TABLE IF NOT EXISTS raw.ingest_source_inputs (
+    ingest_run_id uuid NOT NULL REFERENCES raw.ingest_runs (ingest_run_id) ON DELETE CASCADE,
+    source_key text NOT NULL,
+    source_path text NOT NULL,
+    bytes bigint NOT NULL CHECK (bytes >= 0),
+    sha256 text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    provenance jsonb,
+    provenance_sha256 text,
+    PRIMARY KEY (ingest_run_id, source_key)
+);
+
 CREATE TABLE IF NOT EXISTS raw.population (
     district_code text,
     nuts_code text,

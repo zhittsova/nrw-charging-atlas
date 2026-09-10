@@ -10,7 +10,9 @@ import requests
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SEED_PATH = ROOT / "frontend" / "data" / "nrw_regions_sample.geojson"
+# The canonical export is produced after a successful atomic refresh and before
+# layer publication.  It replaces the retired tracked frontend snapshot.
+SEED_PATH = ROOT / "data" / "runtime" / "current" / "nrw_regions_sample.geojson"
 ENV_PATH = ROOT / "geonode" / ".env"
 GEONODE_URL = "http://localhost:8000"
 GEOSERVER_URL = "http://localhost:8080/geoserver"
