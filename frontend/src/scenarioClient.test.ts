@@ -92,6 +92,18 @@ describe("scenario WFS client", () => {
     })).rejects.toThrow("Point is outside NRW");
   });
 
+  it("reports the actual 401 authentication challenge instead of a parser fallback", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("<html>Unauthorized</html>", {
+      status: 401,
+      headers: { "WWW-Authenticate": "Basic realm=GeoServer" }
+    }));
+    const client = createScenarioClient(config, fetcher);
+
+    await expect(client.create({
+      name: "Denied", chargingPoints: 2, powerKw: 22, longitude: 7.2, latitude: 51.2
+    })).rejects.toThrow("GeoServer transaction failed (401); authentication challenge: Basic realm=GeoServer");
+  });
+
   it("rejects non-JSON GetFeature responses with an actionable error", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("proxy error", { status: 502 }));
     const client = createScenarioClient(config, fetcher);
