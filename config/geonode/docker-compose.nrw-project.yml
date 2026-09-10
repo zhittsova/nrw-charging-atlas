@@ -22,6 +22,8 @@ services:
     depends_on:
       geoserver:
         condition: service_healthy
+    volumes:
+      - ../data/runtime:/usr/share/nginx/html/runtime:ro
 
   nrw-etl:
     profiles:
@@ -41,6 +43,7 @@ services:
       DATABASE_URL: postgresql://${NRW_DATABASE_USER}:${NRW_DATABASE_PASSWORD}@db:5432/${NRW_DATABASE_NAME:-nrw_gis}
     volumes:
       - ../data/raw:/app/data/raw
+      - ../data/runtime:/app/data/runtime
     depends_on:
       db:
         condition: service_healthy

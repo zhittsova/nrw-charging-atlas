@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import tempfile
 from pathlib import Path
+from uuid import uuid4
 
 from config_utils import ROOT
 from load_nrw_energy_balance_postgis import (
@@ -54,6 +57,74 @@ RENEWABLE_SNAPSHOT = (
     / "renewables"
     / "Standorte-Strom-EE-NRW_EPSG25832_GeoPackage.zip"
 )
+PROVENANCE_DIR = ROOT / "data" / "raw" / "provenance"
+
+
+def _sha256(path: Path) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            size += len(chunk)
+            digest.update(chunk)
+    return size, digest.hexdigest()
+
+
+def consumed_input_records(paths: dict[str, Path], *, provenance_dir: Path = PROVENANCE_DIR) -> list[dict[str, object]]:
+    """Capture exact input bytes before the one transaction that publishes them."""
+    records: list[dict[str, object]] = []
+    for source_key, path in sorted(paths.items()):
+        if not path.is_file():
+            raise ValueError(f"Consumed source is missing: {path}")
+        size, checksum = _sha256(path)
+        provenance_file = provenance_dir / f"{source_key}.json"
+        provenance: object | None = None
+        provenance_checksum: str | None = None
+        if provenance_file.exists():
+            try:
+                provenance = json.loads(provenance_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as error:
+                raise ValueError(f"Consumed provenance is malformed: {provenance_file}") from error
+            if not isinstance(provenance, dict):
+                raise ValueError(f"Consumed provenance is not an object: {provenance_file}")
+            _, provenance_checksum = _sha256(provenance_file)
+        records.append({
+            "source_key": source_key,
+            "source_path": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path),
+            "bytes": size,
+            "sha256": checksum,
+            "provenance": provenance,
+            "provenance_sha256": provenance_checksum,
+        })
+    return records
+
+
+def ingest_provenance_import(records: list[dict[str, object]], *, ingest_run_id: str | None = None) -> str:
+    """Return transaction-local SQL that makes this seed's inputs exportable."""
+    run_id = ingest_run_id or str(uuid4())
+    rows = ",\n".join(
+        "(" + ", ".join(
+            [
+                "'" + run_id + "'::uuid",
+                "'" + str(record["source_key"]).replace("'", "''") + "'",
+                "'" + str(record["source_path"]).replace("'", "''") + "'",
+                str(record["bytes"]),
+                "'" + str(record["sha256"]) + "'",
+                "NULL" if record["provenance"] is None else "'" + json.dumps(record["provenance"], sort_keys=True).replace("'", "''") + "'::jsonb",
+                "NULL" if record["provenance_sha256"] is None else "'" + str(record["provenance_sha256"]) + "'",
+            ]
+        ) + ")"
+        for record in records
+    )
+    return f"""BEGIN;
+UPDATE raw.ingest_runs SET is_current = false WHERE is_current;
+INSERT INTO raw.ingest_runs (ingest_run_id, is_current) VALUES ('{run_id}'::uuid, true);
+INSERT INTO raw.ingest_source_inputs
+    (ingest_run_id, source_key, source_path, bytes, sha256, provenance, provenance_sha256)
+VALUES
+{rows};
+COMMIT;
+"""
 
 
 def read_grid_rows(*, pbf: Path, geojson: Path | None) -> list[dict[str, object]]:
@@ -117,6 +188,16 @@ SELECT district_code, nuts_code, NULLIF(ags, ''), population, reference_year, so
 FROM import_population;
 COMMIT;
 """
+    consumed = consumed_input_records({
+        "bnetza_ladesaeulenregister": ROOT / "data" / "raw" / "bnetza_ladesaeulenregister.csv",
+        "eurostat_population_nrw": population_snapshot,
+        "opsd_conventional_power_plants_nrw": opsd_snapshot,
+        "strassen_nrw_traffic_values": traffic_snapshot,
+        "energieatlas_nrw_renewable_sites": renewable_snapshot,
+        "energieatlas_nrw_admin_electricity": energy_workbook,
+        "geofabrik_nrw_osm_power": grid_pbf,
+        "geofabrik_nrw_osm_roads": road_pbf,
+    })
     return (
         charger_import_script(admin_regions, chargers, source_snapshot=source_snapshot),
         population_import,
@@ -124,6 +205,7 @@ COMMIT;
         grid_import_script(grid),
         road_import_script(roads),
         energy_import_script(consumption, energy_renewables, reporting_year),
+        ingest_provenance_import(consumed),
     )
 
 

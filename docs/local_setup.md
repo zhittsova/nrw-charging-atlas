@@ -9,9 +9,10 @@ uv run python -m scripts.project_stack bootstrap
 ```
 
 `bootstrap` provisions the local GeoNode checkout, starts the stack, downloads
-the public inputs, rebuilds `nrw_gis`, publishes the layers, and runs the
-project verifier. Use `bootstrap --skip-download` only when `data/raw` already
-contains the required source files.
+the public inputs, rebuilds `nrw_gis`, exports the canonical dashboard
+snapshots, publishes the layers, and runs the project verifier. Use `bootstrap
+--skip-download` only when `data/raw` already contains the required source
+files.
 
 ## Everyday commands
 
@@ -20,6 +21,7 @@ uv run python -m scripts.project_stack start
 uv run python -m scripts.project_stack rebuild
 uv run python -m scripts.project_stack fetch
 uv run python -m scripts.project_stack seed
+uv run python -m scripts.project_stack export
 uv run python -m scripts.project_stack publish
 uv run python -m scripts.project_stack verify
 uv run python -m scripts.project_stack status
@@ -33,6 +35,14 @@ The dashboard is at `http://localhost:8081`, GeoNode at
 `geonode/.env`, raw downloads, generated outputs, and Docker volumes are
 local state. Do not commit them. `stop` preserves volumes. `docker compose
 down -v` removes persistent GeoNode and PostGIS data.
+
+`export` reads one repeatable-read transaction from the five canonical
+`publish` views and atomically replaces `data/runtime/current/`. It writes the
+five `/data/*.geojson` fallback files and `manifest.json`; the frontend serves
+that ignored directory directly, so no snapshot is copied into an image. The
+renewable fallback contains only operating `Windenergie` and `Photovoltaik
+Freifläche` records. It does not change the raw renewable inventory or district
+analytical totals.
 
 The project CLI is the only supported Compose entry point. The root
 `docker-compose.yml` is retired and must not be used. `start` builds changed
