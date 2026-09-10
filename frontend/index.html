@@ -10,8 +10,8 @@
       window.__energyAppConfig = {
         geonodeBaseUrl: "http://localhost:8000",
         geoserverBaseUrl: "",
-        geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
-        geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
+        geonodeStationsLayer: "nrw:nrw_chargers",
+        geonodeRegionsLayer: "nrw:nrw_ev_baseline_metrics",
         scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
         proposedChargersLayer: "nrw:proposed_chargers",
         autobahnsLayer: "nrw:nrw_autobahns",
@@ -53,27 +53,27 @@
               <h2>How the indicators are calculated</h2>
               <a href="#sources">All data sources</a>
             </div>
-            <p class="method-intro">The canonical PostGIS calculation normalizes input values against fixed baseline 5th and 95th percentile bounds, and combines them using the weights below. Local fallback scores may use a simplified calculation; check the data notice above the map. Scenario stations change district values without moving the baseline comparison scale.</p>
+            <p class="method-intro">Scores compare districts on a scale from 0 to 100; they are not percentages of demand met. The formulas below describe the main analytical model. Local fallback data may use a simplified calculation, so check the data notice above the map before interpreting a score.</p>
             <div class="methodology-list">
               <section>
                 <h3>EV Readiness</h3>
-                <p><strong>40% Charger Density</strong> + <strong>30% Charger Accessibility</strong> + <strong>30% Population-adjusted Coverage</strong>.</p>
-                <small>Based on official/proposed station locations, distance from the district centroid, district area and Eurostat population.</small>
+                <p><strong>40% Charging-point Density</strong> + <strong>30% Charger Accessibility</strong> + <strong>30% Population-adjusted Coverage</strong>.</p>
+                <small>Density measures charging points per km². Accessibility measures straight-line distance from the district’s geographic centre to the nearest station: closer scores higher. Population-adjusted coverage measures charging points per 100,000 residents. A station may contain several charging points.</small>
               </section>
               <section>
                 <h3>Charger Deficit</h3>
                 <p><strong>Charger Deficit = 100 − EV Readiness</strong>.</p>
-                <small>A higher value identifies a larger relative charging-infrastructure gap.</small>
+                <small>Answers “Where is the charging gap greatest?” Most underserved is the district with the highest deficit, taking charging supply, population and accessibility into account. It does not estimate an exact number of missing stations.</small>
               </section>
               <section>
                 <h3>Infrastructure Opportunity</h3>
                 <p><strong>40% Transport Load</strong> + <strong>35% Grid Readiness Proxy</strong> + <strong>25% Renewable Context</strong>.</p>
-                <small>Based on Straßen.NRW traffic, mapped OSM power infrastructure and Energieatlas NRW renewable assets.</small>
+                <small>Combines traffic, mapped electricity infrastructure and existing renewable energy. Higher scores indicate stronger infrastructure context for further investigation, not confirmed spare grid capacity. See the detailed breakdown below.</small>
               </section>
               <section>
                 <h3>Investment Priority</h3>
                 <p><strong>60% Charger Deficit</strong> + <strong>40% Infrastructure Opportunity</strong>.</p>
-                <small>Ranks areas where the charging gap and supporting infrastructure context jointly justify closer planning review.</small>
+                <small>Answers “Which district should we investigate first for new stations?” Highest priority balances need with infrastructure context. It can differ from Most underserved because 40% of this score comes from infrastructure opportunity.</small>
               </section>
               <section>
                 <h3>Grid Absorption Risk Proxy</h3>
@@ -81,6 +81,48 @@
                 <small>This is a screening proxy, not measured DSO hosting capacity. Feeder loading, transformer headroom and connection queues are not available.</small>
               </section>
             </div>
+            <div class="indicator-comparison">
+              <h3>Why “Most underserved” and “Highest priority” can differ</h3>
+              <p><strong>Most underserved</strong> means the largest charging gap. <strong>Highest priority</strong> combines that gap with infrastructure opportunity to shortlist districts for closer review.</p>
+              <p>Illustrative example: District A has a deficit of 90 and infrastructure opportunity of 20, giving a priority of <strong>62</strong> (0.60 × 90 + 0.40 × 20). District B has a smaller deficit of 70 but opportunity of 80, giving a priority of <strong>74</strong>. A is more underserved; B has higher investment priority. These are example values, not NRW observations.</p>
+            </div>
+            <details class="method-details">
+              <summary>Infrastructure Opportunity: inputs, weights and limitations</summary>
+              <p><strong>40% Transport Load + 35% Grid Readiness Proxy + 25% Renewable Context.</strong> The percentages below are weights within each component, not shares of the overall score.</p>
+              <div class="infrastructure-breakdown">
+                <section>
+                  <h3>Transport Load — 40% of the total</h3>
+                  <ul>
+                    <li><strong>60% traffic intensity:</strong> average daily vehicle traffic, weighted by the length of measured road sections.</li>
+                    <li><strong>25% traffic-weighted road density:</strong> road length multiplied by traffic, divided by district area.</li>
+                    <li><strong>15% road proximity:</strong> straight-line distance from the district’s geographic centre to the nearest mapped road; closer scores higher.</li>
+                  </ul>
+                  <p>Source: Straßen.NRW. Traffic covers federal, state and district roads. <strong>Autobahn traffic is excluded</strong>; the Autobahn map layer supplies geometry only.</p>
+                </section>
+                <section>
+                  <h3>Grid Readiness Proxy — 35% of the total</h3>
+                  <ul>
+                    <li><strong>45% substation proximity:</strong> distance from the district’s geographic centre to the nearest mapped substation or transformer; closer scores higher.</li>
+                    <li><strong>35% voltage-weighted line density:</strong> power-line length multiplied by mapped voltage, divided by district area.</li>
+                    <li><strong>20% substation density:</strong> mapped substations and transformers per km².</li>
+                  </ul>
+                  <p>Source: OpenStreetMap. This describes mapped infrastructure, <strong>not available connection capacity</strong>. It does not measure grid congestion, transformer headroom or connection approval.</p>
+                </section>
+                <section>
+                  <h3>Renewable Context — 25% of the total</h3>
+                  <ul>
+                    <li><strong>70% installed capacity density:</strong> capacity of operating renewable installations in MW per km².</li>
+                    <li><strong>30% technology diversity:</strong> the number of distinct renewable technologies with positive installed capacity.</li>
+                  </ul>
+                  <p>Source: Energieatlas NRW. This measures existing installations, not future generation potential or electricity reserved for EV charging.</p>
+                  <p><strong>Map and calculation differ:</strong> the map displays solar farms and wind installations. Rooftop solar is hidden on the map but remains included in the analytical totals.</p>
+                </section>
+              </div>
+              <h3>How different units become comparable</h3>
+              <p>Each input is converted to a 0–100 score using the 5th and 95th percentiles across the district comparison data. For inputs where more means a higher score, values at or below the lower bound score 0 and values at or above the upper bound score 100; values between them are scaled proportionally. Distance scores run in reverse. If both bounds are equal, the component scores 50.</p>
+              <p>The model then applies the weights above. For example, transport 80, grid 60 and renewables 40 give an infrastructure opportunity score of <strong>63</strong>: 0.40 × 80 + 0.35 × 60 + 0.25 × 40.</p>
+              <p>If a required component is unavailable, the overall infrastructure score is unavailable rather than calculated with replacement weights. A score can still use partial mapped or measured coverage; coverage information matters when comparing districts. A high score does not establish that a specific site is suitable for construction.</p>
+            </details>
           </article>
         </section>
 
@@ -92,37 +134,39 @@
             <button type="button" data-question="evReadinessScore" aria-pressed="false"><strong>Which districts are best prepared?</strong><span>Compare present charging readiness for further electrification.</span></button>
           </div>
         </section>
-        <div class="workspace-heading"><h2>2. Compare districts</h2><p id="question-explanation" aria-live="polite">Higher Investment Priority means a district merits closer review for new charging stations.</p></div>
+        <div class="workspace-heading"><h2>2. Compare districts</h2><p id="question-explanation" aria-live="polite">Investment Priority combines 60% charging deficit with 40% infrastructure opportunity to shortlist districts for new stations.</p></div>
         <p id="data-quality-note" class="data-quality-note" role="status">Checking the available district data…</p>
         <section class="kpi-grid" aria-label="Key indicators">
           <article class="kpi-card kpi-green">
             <div>
-              <span>Total NRW stations</span>
+              <span id="kpi-total-stations-label">Total NRW stations</span>
               <strong id="kpi-total-stations">-</strong>
             </div>
           </article>
           <article class="kpi-card kpi-blue">
             <div>
-              <span>Avg EV readiness</span>
+              <span id="kpi-average-readiness-label">Avg EV readiness</span>
               <strong id="kpi-average-density">-</strong>
             </div>
           </article>
           <article class="kpi-card kpi-purple">
             <div>
-              <span>Best EV readiness</span>
+              <span id="kpi-best-readiness-label">Best EV readiness</span>
               <strong id="kpi-best-region">-</strong>
             </div>
           </article>
           <article class="kpi-card kpi-amber">
             <div>
-              <span>Most underserved</span>
+              <span id="kpi-underserved-label">Most underserved</span>
               <strong id="kpi-underserved-region">-</strong>
+              <small id="kpi-underserved-note">Largest charging gap: 100 − EV Readiness.</small>
             </div>
           </article>
           <article class="kpi-card kpi-teal">
             <div>
-              <span>Highest priority</span>
+              <span id="kpi-priority-label">Highest priority</span>
               <strong id="kpi-priority-region">-</strong>
+              <small id="kpi-priority-note">60% charging gap + 40% infrastructure opportunity.</small>
             </div>
           </article>
         </section>

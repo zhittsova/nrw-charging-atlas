@@ -127,8 +127,8 @@ const NRW_BOUNDS: L.LatLngBoundsExpression = [
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   geonodeBaseUrl: "http://localhost:8000",
   geoserverBaseUrl: "",
-  geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
-  geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
+  geonodeStationsLayer: "nrw:nrw_chargers",
+  geonodeRegionsLayer: "nrw:nrw_ev_baseline_metrics",
   scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
   proposedChargersLayer: "nrw:proposed_chargers",
   autobahnsLayer: "nrw:nrw_autobahns",
@@ -502,6 +502,7 @@ function geoserverWfsUrl(typeName: string): string {
     version: "2.0.0",
     request: "GetFeature",
     typeNames: typeName,
+    srsName: "EPSG:4326",
     outputFormat: "application/json"
   });
   return `${baseUrl}/geoserver/ows?${query.toString()}`;
@@ -560,6 +561,7 @@ function sortedRegions(metric: ScoreMetric): Feature<RegionProperties>[] {
 }
 
 function renderKpis(): void {
+  const isChangeView = scenarioViewMode === "change";
   const readinessScores = regionFeatures.map((feature) => scoreValue(feature.properties, "evReadinessScore"));
   const averageReadiness = readinessScores.reduce((sum, score) => sum + score, 0) / Math.max(1, readinessScores.length);
   const bestReadiness = sortedRegions("evReadinessScore")[0]?.properties;
@@ -571,8 +573,23 @@ function renderKpis(): void {
       ? officialStations.features.length + proposedStations.features.length
       : proposedStations.features.length;
 
+  setText("kpi-total-stations-label", isChangeView ? "Proposed stations" : "Total NRW stations");
+  setText("kpi-average-readiness-label", isChangeView ? "Avg EV readiness change" : "Avg EV readiness");
+  setText("kpi-best-readiness-label", isChangeView ? "Largest readiness change" : "Best EV readiness");
+  setText("kpi-underserved-label", isChangeView ? "Largest charging-gap change" : "Most underserved");
+  setText("kpi-priority-label", isChangeView ? "Largest priority change" : "Highest priority");
+  setText(
+    "kpi-underserved-note",
+    isChangeView ? "Largest absolute change in charging gap." : "Largest charging gap: 100 − EV Readiness."
+  );
+  setText(
+    "kpi-priority-note",
+    isChangeView
+      ? "Largest absolute change in investment priority."
+      : "60% charging gap + 40% infrastructure opportunity."
+  );
   setText("kpi-total-stations", new Intl.NumberFormat("en-US").format(stationTotal));
-  setText("kpi-average-density", scenarioViewMode === "change" ? formatScore(averageReadiness) : `${averageReadiness.toFixed(0)} / 100`);
+  setText("kpi-average-density", isChangeView ? formatScore(averageReadiness) : `${averageReadiness.toFixed(0)} / 100`);
   setText("kpi-best-region", bestReadiness ? regionName(bestReadiness) : "-");
   setText("kpi-underserved-region", underserved ? regionName(underserved) : "-");
   setText("kpi-priority-region", priority ? regionName(priority) : "-");
@@ -595,12 +612,33 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
   const infrastructure = scoreValue(p, "infrastructureOpportunityScore");
   const rank = numericValue(p, ["priorityRank", "priority_rank"], sortedRegions("investmentPriorityScore").findIndex((item) => regionId(item.properties) === regionId(p)) + 1);
   const tier = textValue(p, ["priorityTier", "priority_tier"], "screening");
-  const recommendation =
-    investment >= 70
+  const isChangeView = scenarioViewMode === "change";
+  const recommendation = isChangeView
+    ? "This is a change view, not a site recommendation. Positive EV readiness means a stronger relative charging score; negative deficit or priority means less relative charging need."
+    : investment >= 70
       ? "High screening priority. Charger supply is weak relative to other NRW districts, so this district should be checked first once demand and road layers are joined."
       : readiness >= 70
         ? "Strong EV readiness in the selected view. Use the baseline comparison before changing investment priority."
         : "Medium screening case. Compare the baseline and scenario values before making a planning decision.";
+  const labels = isChangeView
+    ? {
+        stations: "Station change",
+        points: "Charging-point change",
+        fastChargers: "Fast-charger change",
+        readiness: "EV readiness change",
+        deficit: "Charger-deficit change",
+        rank: "Scenario priority rank",
+        infrastructure: "Infrastructure opportunity change"
+      }
+    : {
+        stations: "Stations",
+        points: "Charging points",
+        fastChargers: "Fast chargers",
+        readiness: "EV readiness",
+        deficit: "Charger deficit",
+        rank: "Priority rank",
+        infrastructure: "Infrastructure opportunity"
+      };
 
   const comparison = p.baseline_ev_readiness_score === undefined ? "" : `
     <div class="comparison-grid" aria-label="Baseline and scenario comparison">
@@ -616,16 +654,16 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
     </div>
     <div class="detail-grid">
       <div class="detail-metric"><span>NUTS-3</span><strong>${escapeHtml(textValue(p, ["nuts_code"], "-"))}</strong></div>
-      <div class="detail-metric"><span>Stations</span><strong>${formatNumber(numericValue(p, ["stationCount", "chargers_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>Charging points</span><strong>${formatNumber(numericValue(p, ["charging_points_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>Fast chargers</span><strong>${formatNumber(numericValue(p, ["fast_chargers", "fast_chargers_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>EV readiness</span><strong>${formatScore(readiness)}</strong></div>
-      <div class="detail-metric"><span>Charger deficit</span><strong>${formatScore(deficit)}</strong></div>
-      <div class="detail-metric"><span>Priority rank</span><strong>#${formatNumber(rank)}</strong></div>
-      <div class="detail-metric"><span>Infrastructure opportunity</span><strong>${formatScore(infrastructure)}</strong></div>
+      <div class="detail-metric"><span>${labels.stations}</span><strong>${formatNumber(numericValue(p, ["stationCount", "chargers_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.points}</span><strong>${formatNumber(numericValue(p, ["charging_points_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.fastChargers}</span><strong>${formatNumber(numericValue(p, ["fast_chargers", "fast_chargers_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.readiness}</span><strong>${formatScore(readiness)}</strong></div>
+      <div class="detail-metric"><span>${labels.deficit}</span><strong>${formatScore(deficit)}</strong></div>
+      <div class="detail-metric"><span>${labels.rank}</span><strong>#${formatNumber(rank)}</strong></div>
+      <div class="detail-metric"><span>${labels.infrastructure}</span><strong>${formatScore(infrastructure)}</strong></div>
     </div>
     ${comparison}
-    <p class="recommendation">${escapeHtml(recommendation)} Current tier: ${escapeHtml(tier)}.</p>
+    <p class="recommendation">${escapeHtml(recommendation)}${isChangeView ? "" : ` Current tier: ${escapeHtml(tier)}.`}</p>
   `;
 }
 
@@ -914,8 +952,8 @@ function chooseIndicator(metric: ScoreMetric): void {
     button.setAttribute("aria-pressed", String(button.dataset.question === metric));
   });
   const explanations: Record<ScoreMetric, string> = {
-    chargerDeficitScore: "Higher Charger Deficit means a larger relative charging gap. Check the data notice before interpreting population and accessibility.",
-    investmentPriorityScore: "Higher Investment Priority means a district merits closer review for new charging stations. It does not identify a construction-ready site.",
+    chargerDeficitScore: "Most underserved means the largest charging gap: 100 − EV Readiness. Readiness considers charging-point density, proximity and charging points relative to population. Check the data notice for calculation limits.",
+    investmentPriorityScore: "Highest priority combines 60% charging deficit with 40% infrastructure opportunity. It can differ from the most underserved district and does not identify a construction-ready site.",
     evReadinessScore: "Higher EV Readiness means stronger present charging provision relative to other districts. This is not a forecast of future demand.",
     infrastructureOpportunityScore: "Higher Infrastructure Opportunity means stronger supporting traffic, grid and renewable context. Grid capacity is a proxy, not a confirmed connection offer."
   };

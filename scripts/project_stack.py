@@ -33,10 +33,11 @@ def run_etl(script: str, *args: str) -> None:
     )
 
 
-def fetch_data() -> None:
+def fetch_data(*, refresh: bool = False) -> None:
     """Download every public source required by the production data mart."""
-    run_etl("scripts/fetch_real_data.py")
-    run_etl("scripts/fetch_nrw_infrastructure.py", "--allow-large")
+    refresh_args = ("--refresh",) if refresh else ()
+    run_etl("scripts/fetch_real_data.py", *refresh_args)
+    run_etl("scripts/fetch_nrw_infrastructure.py", "--allow-large", *refresh_args)
 
 
 def seed_database(*, population_snapshot: Path | None = POPULATION_SNAPSHOT) -> None:
@@ -112,7 +113,8 @@ def main() -> None:
         "rebuild",
         help="rebuild local frontend and ETL images without cache, then recreate containers",
     )
-    commands.add_parser("fetch", help="download or refresh public source datasets")
+    fetch_parser = commands.add_parser("fetch", help="reuse validated public source datasets")
+    fetch_parser.add_argument("--refresh", action="store_true", help="explicitly replace validated cached sources")
     commands.add_parser("seed", help="rebuild the project database from source snapshots")
     commands.add_parser("publish", help="provision GeoServer layers and synchronize GeoNode")
     commands.add_parser("verify", help="test WFS-T, metric recalculation, cleanup, and catalog publication")
@@ -130,7 +132,7 @@ def main() -> None:
         geonode_stack.rebuild_stack()
         print_endpoints()
     elif args.command == "fetch":
-        fetch_data()
+        fetch_data(refresh=args.refresh)
     elif args.command == "seed":
         seed_database()
     elif args.command == "publish":

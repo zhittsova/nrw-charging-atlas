@@ -218,3 +218,15 @@ button:hover { background:#14324b; border-color:#65b3ff; }
 .information-grid { grid-template-columns:1fr; }
 @media(max-width:980px) { .visible-methods .methodology-list { grid-template-columns:1fr 1fr; } }
 @media(max-width:600px) { .visible-methods .methodology-list { grid-template-columns:1fr; } }
+
+/* Plain-language indicator guidance, using the existing dark theme. */
+.kpi-card small { display:block; margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; }
+.indicator-comparison,.method-details { border-top:1px solid var(--line); margin-top:20px; padding-top:18px; }
+.indicator-comparison p,.method-details p,.method-details li { font-size:14px; line-height:1.6; }
+.method-details summary { cursor:pointer; color:#7dd3fc; font-weight:700; padding:8px 0; }
+.method-details summary:focus-visible { outline:2px solid #7dd3fc; outline-offset:4px; }
+.infrastructure-breakdown { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; margin:18px 0; }
+.infrastructure-breakdown h3 { color:#7dd3fc; }
+.infrastructure-breakdown ul { padding-left:20px; }
+.infrastructure-breakdown li { margin-bottom:10px; }
+@media(max-width:980px) { .infrastructure-breakdown { grid-template-columns:1fr; gap:12px; } }

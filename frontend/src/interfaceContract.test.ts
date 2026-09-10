@@ -41,7 +41,7 @@ describe("dashboard information architecture", () => {
   });
 
   it("explains every composite indicator and its weights", () => {
-    expect(html).toContain("40% Charger Density");
+    expect(html).toContain("40% Charging-point Density");
     expect(html).toContain("30% Charger Accessibility");
     expect(html).toContain("30% Population-adjusted Coverage");
     expect(html).toContain("Charger Deficit = 100 − EV Readiness");
@@ -52,6 +52,27 @@ describe("dashboard information architecture", () => {
     expect(html).toContain("40% Infrastructure Opportunity");
     expect(html).toContain("45% Local Energy Balance");
     expect(html).toContain("30% Renewable Growth");
+  });
+
+  it("distinguishes charging-point supply from station locations in the EV model", () => {
+    expect(html).toContain("Density measures charging points per km²");
+    expect(html).toContain("nearest station: closer scores higher");
+    expect(html).toContain("charging points per 100,000 residents");
+  });
+
+  it("makes change-view KPI and district labels explicit about score changes", () => {
+    for (const id of [
+      "kpi-total-stations-label",
+      "kpi-average-readiness-label",
+      "kpi-best-readiness-label",
+      "kpi-underserved-label",
+      "kpi-priority-label"
+    ]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(mainSource).toContain("Largest charging-gap change");
+    expect(mainSource).toContain("This is a change view, not a site recommendation.");
+    expect(mainSource).toContain("Scenario priority rank");
   });
 
   it("lists project data sources as text", () => {
