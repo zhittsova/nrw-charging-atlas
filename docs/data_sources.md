@@ -3,8 +3,8 @@
 The project is scoped to NRW. Source files may cover a wider area, but loaders
 filter their output to the 53 NRW NUTS-3 districts.
 
-The source manifests are the canonical record of URLs, access type, licence
-notes, local targets, and download limits:
+The source manifests are the canonical record of URLs, access type, source
+role, licence notes, local targets, and configurable download limits:
 
 - `catalog/data_sources.csv`
 - `catalog/nrw_infrastructure_sources.csv`
@@ -137,6 +137,27 @@ Raw downloads and provenance belong under `data/raw/` and are not committed.
 The loaders and manifests, rather than this overview, define the current
 pipeline. Sources that are not loaded must not be represented as inputs to a
 published metric.
+
+## Reproducible fetch cache
+
+`python scripts/project_stack.py fetch` reuses a source only when its final
+file and `data/raw/provenance/<dataset_id>.json` agree on byte count and
+SHA-256. The record names the resolved URL, fetch timestamp, source date when
+supplied by the registry, licence reference, cache status and resume outcome.
+Use `fetch --refresh` to request a new input; a stale cache is never presented
+as a newly fetched snapshot. Population uses the same explicit cache boundary
+for its assembled Eurostat response.
+
+Downloads write `*.part` candidates and validate their configured size and
+checksum before atomically replacing the final input. An interrupted candidate
+is not a cache hit. Resume requires a matching URL and strong ETag plus a
+validated Content-Range; candidates without that identity restart safely.
+Declared transfer lengths and source-format checks run before replacement,
+while the prior final input stays available. Format checks cover CSV headers
+and an initial data row, GeoJSON structure, archive integrity and the OSM PBF
+header; S09 retains full import and domain validation. Registry roles distinguish
+`required_input`, `contextual_input`, and `contextual_unused`; the latter are
+never represented as scoring inputs merely because their files were fetched.
 
 Licensing and attribution requirements remain with each manifest entry. OSM
 data requires ODbL attribution. Grid results remain proxies because the public

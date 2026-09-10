@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -9,10 +10,12 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from config_utils import ROOT
-from load_nrw_postgis import _copy_block, read_raw_seed_snapshot
+from load_nrw_postgis import read_raw_seed_snapshot
+from source_cache import cache_record, provenance_path, store_validated_bytes
 
 
 API = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/demo_r_pjanaggr3"
+PROVENANCE_DIR = ROOT / "data" / "raw" / "provenance"
 
 
 def read_population_snapshot(path: Path, *, expected_codes: set[str]) -> list[dict]:
@@ -76,40 +79,58 @@ def fetch_population(nuts_code: str) -> dict:
     }
 
 
+def read_population_source_row() -> dict[str, str]:
+    with (ROOT / "catalog" / "data_sources.csv").open(newline="", encoding="utf-8") as file:
+        rows = {row["dataset_id"]: row for row in csv.DictReader(file)}
+    try:
+        return rows["eurostat_population_nrw"]
+    except KeyError as error:
+        raise ValueError("catalog is missing the consumed eurostat_population_nrw source") from error
+
+
+def fetch_population_snapshot(
+    expected_codes: set[str], *, refresh: bool = False, target: Path | None = None
+) -> dict[str, object]:
+    """Fetch the API snapshot only on explicit refresh or cache invalidation."""
+    row = read_population_source_row()
+    target = target or ROOT / row["target_path"]
+    provenance = provenance_path(PROVENANCE_DIR, row["dataset_id"])
+    cached = cache_record(row, target, provenance)
+    if cached and not refresh:
+        read_population_snapshot(target, expected_codes=expected_codes)
+        result = dict(cached)
+        result["cache_status"] = "reused"
+        return result
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        rows = list(executor.map(fetch_population, sorted(expected_codes)))
+    snapshot = {"dataset": "demo_r_pjanaggr3", "source_url": API, "records": rows}
+    content = (json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    return store_validated_bytes(
+        row,
+        content,
+        root=ROOT,
+        provenance_dir=PROVENANCE_DIR,
+        source_url=API,
+        validator=lambda candidate: read_population_snapshot(candidate, expected_codes=expected_codes),
+        source_date=str(max(int(item["reference_year"]) for item in rows)),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--snapshot", type=Path, help="Use a checked population snapshot without API calls")
+    parser.add_argument("--refresh", action="store_true", help="Explicitly replace the cached Eurostat snapshot")
     args = parser.parse_args()
     if not args.database_url:
         raise ValueError("DATABASE_URL or --database-url is required")
     regions, _, _ = read_raw_seed_snapshot()
     expected_codes = {str(region["nuts_code"]) for region in regions}
     if args.snapshot:
-        rows = read_population_snapshot(args.snapshot, expected_codes=expected_codes)
+        read_population_snapshot(args.snapshot, expected_codes=expected_codes)
     else:
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            rows = list(executor.map(fetch_population, sorted(expected_codes)))
-        snapshot = {
-            "dataset": "demo_r_pjanaggr3",
-            "source_url": API,
-            "records": rows,
-        }
-        target = ROOT / "data/raw/eurostat_population_nrw.json"
-        target.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    columns = ("district_code", "nuts_code", "ags", "population", "reference_year", "source")
-    sql = f"""BEGIN;
-CREATE TEMP TABLE import_population (
-  district_code text, nuts_code text, ags text, population integer,
-  reference_year integer, source text
-) ON COMMIT DROP;
-{_copy_block("import_population", columns, rows)}
-TRUNCATE raw.population;
-INSERT INTO raw.population
-SELECT district_code, nuts_code, NULLIF(ags, ''), population, reference_year, source
-FROM import_population;
-COMMIT;
-"""
+        fetch_population_snapshot(expected_codes, refresh=args.refresh)
+        read_population_snapshot(ROOT / "data/raw/eurostat_population_nrw.json", expected_codes=expected_codes)
     raise ValueError(
         "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
         "to publish a complete atomic seed."
