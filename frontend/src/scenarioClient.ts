@@ -70,12 +70,19 @@ async function transact(fetcher: FetchLike, wfsUrl: string, xml: string): Promis
     cache: "no-store"
   });
   const body = await response.text();
+  if (!response.ok) {
+    const challenge = response.headers.get("www-authenticate");
+    const result = parseTransactionResponse(body);
+    const detail = result.ok
+      ? "GeoServer returned a success-shaped response with a failing HTTP status"
+      : result.error;
+    const authentication = challenge ? `; authentication challenge: ${challenge}` : "";
+    throw new Error(`GeoServer transaction failed (${response.status})${authentication}: ${detail}`);
+  }
   const result = parseTransactionResponse(body);
   if (!result.ok) {
-    const prefix = response.ok ? "GeoServer rejected the transaction" : `GeoServer transaction failed (${response.status})`;
-    throw new Error(`${prefix}: ${result.error}`);
+    throw new Error(`GeoServer rejected the transaction: ${result.error}`);
   }
-  if (!response.ok) throw new Error(`GeoServer transaction failed (${response.status})`);
   return result.insertedFeatureId;
 }
 

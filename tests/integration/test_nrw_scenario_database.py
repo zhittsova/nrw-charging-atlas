@@ -65,6 +65,9 @@ class LegacyProposedChargerMigrationDatabaseTest(unittest.TestCase):
                 '123e4567-e89b-12d3-a456-426614174000', 'Legacy station', 2,
                 44, 'DEA01', 'proposed', ST_SetSRID(ST_Point(6.5, 50.5), 4326)
             );
+            ALTER TABLE scenario.proposed_chargers
+                ADD COLUMN geom_25832 geometry(Point, 25832)
+                GENERATED ALWAYS AS (ST_Transform(geom, 25832)) STORED;
             """
         )
         cls.psql_file(ROOT / "db/nrw_schema.sql")
@@ -121,6 +124,21 @@ class LegacyProposedChargerMigrationDatabaseTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "1|t|44")
+
+    def test_migration_converts_generated_projection_without_losing_proposal(self) -> None:
+        result = self.psql(
+            "SELECT is_generated || '|' || "
+            "ST_Equals(geom_25832, ST_Transform(geom, 25832))::text "
+            "FROM information_schema.columns c "
+            "JOIN scenario.proposed_chargers p ON true "
+            "WHERE c.table_schema = 'scenario' "
+            "  AND c.table_name = 'proposed_chargers' "
+            "  AND c.column_name = 'geom_25832';",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "NEVER|true")
 
 
 @unittest.skipUnless(DATABASE_URL, "SCENARIO_TEST_DATABASE_URL is not configured")
@@ -211,7 +229,7 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
                 ST_SetSRID(ST_Point(6.5, 50.5), 4326)
             )
             RETURNING name, charging_points, power_kw, max_point_power_kw, nuts_code,
-                      status, id IS NOT NULL, created_at IS NOT NULL;
+                      status, id IS NOT NULL, created_at IS NOT NULL, ST_SRID(geom_25832);
             """,
             check=False,
         )
@@ -219,7 +237,7 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            "Demo Station|4|150|75|DEA01|proposed|t|t",
+            "Demo Station|4|150|75|DEA01|proposed|t|t|25832",
         )
 
     def test_insert_outside_nrw_is_rejected_without_persisting_a_row(self) -> None:

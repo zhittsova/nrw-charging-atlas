@@ -103,8 +103,28 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
 );
 
 ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS max_point_power_kw numeric;
-ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS geom_25832 geometry(Point, 25832)
-    GENERATED ALWAYS AS (ST_Transform(geom, 25832)) STORED;
+-- GeoServer WFS-T writes every discovered geometry attribute.  A generated
+-- companion geometry is therefore not writable even when the client only
+-- supplies `geom`.  Keep the projected column for analytics, but maintain it
+-- in the validation trigger so the WFS-facing table remains insertable.
+ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS geom_25832 geometry(Point, 25832);
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'scenario'
+          AND table_name = 'proposed_chargers'
+          AND column_name = 'geom_25832'
+          AND is_generated = 'ALWAYS'
+    ) THEN
+        ALTER TABLE scenario.proposed_chargers ALTER COLUMN geom_25832 DROP EXPRESSION;
+    END IF;
+END
+$$;
+UPDATE scenario.proposed_chargers
+SET geom_25832 = ST_Transform(geom, 25832)
+WHERE geom_25832 IS DISTINCT FROM ST_Transform(geom, 25832);
 
 DO $$
 BEGIN
@@ -188,6 +208,7 @@ BEGIN
 
     NEW.nuts_code := matched_nuts_code;
     NEW.status := 'proposed';
+    NEW.geom_25832 := ST_Transform(NEW.geom, 25832);
     RETURN NEW;
 END;
 $$;

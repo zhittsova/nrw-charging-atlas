@@ -32,8 +32,20 @@ SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'database_name') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'owner_user') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'publish_user') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON SCHEMA publish FROM %I', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA publish FROM %I', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON SCHEMA publish FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA publish FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA publish FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON SCHEMA scenario FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA scenario FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA scenario FROM %I', :'scenario_user') \gexec
 SELECT format('GRANT USAGE ON SCHEMA publish TO %I', :'publish_user') \gexec
 SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA publish TO %I', :'publish_user') \gexec
+SELECT format(
+  'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA publish REVOKE ALL ON TABLES FROM %I',
+  :'owner_user', :'publish_user'
+) \gexec
 SELECT format(
   'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA publish GRANT SELECT ON TABLES TO %I',
   :'owner_user', :'publish_user'
@@ -45,6 +57,8 @@ SELECT format(
 ) \gexec
 SELECT format('REVOKE ALL ON SCHEMA raw, staging, analytics FROM %I', :'publish_user') \gexec
 SELECT format('REVOKE ALL ON SCHEMA raw, staging, analytics FROM %I', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA raw, staging, analytics FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA raw, staging, analytics FROM %I', :'scenario_user') \gexec
 """
 
 

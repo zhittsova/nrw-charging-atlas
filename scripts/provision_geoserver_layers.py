@@ -4,6 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
+from urllib.parse import quote
 from pathlib import Path
 from typing import NamedTuple
 
@@ -21,6 +22,10 @@ NAMESPACE_URI = "https://nrw.local/scenario"
 PUBLISH_STORE = "nrw_publish"
 SCENARIO_STORE = "nrw_scenario"
 SCENARIO_LAYER = "proposed_chargers"
+# Every project relation is constrained to Nordrhein-Westfalen.  Declaring this
+# conservative envelope at first publication avoids GeoServer scanning a large
+# PostGIS view solely to derive display bounds; it does not filter WFS data.
+NRW_BOUNDS = {"minx": 5.8, "miny": 50.2, "maxx": 9.7, "maxy": 52.8, "crs": "EPSG:4326"}
 
 PUBLISH_LAYERS = {
     "nrw_accessibility": "NRW Road Accessibility",
@@ -78,6 +83,11 @@ def _create_if_missing(
     response.raise_for_status()
 
 
+def _put(session: requests.Session, url: str, payload: dict, **kwargs: object) -> None:
+    response = session.put(url, json=payload, timeout=30, **kwargs)
+    response.raise_for_status()
+
+
 def _connection_parameters(
     config: GeoServerConfig,
     *,
@@ -112,6 +122,14 @@ def ensure_workspace(session: requests.Session, config: GeoServerConfig) -> None
         _rest_url(config, "namespaces"),
         {"namespace": {"prefix": WORKSPACE, "uri": NAMESPACE_URI}},
     )
+    # GeoServer creates a namespace with a workspace, using e.g. http://nrw.
+    # Creation alone therefore cannot repair the URI of either a fresh or an
+    # existing workspace.
+    _put(
+        session,
+        _rest_url(config, f"namespaces/{WORKSPACE}.json"),
+        {"namespace": {"prefix": WORKSPACE, "uri": NAMESPACE_URI}},
+    )
 
 
 def ensure_datastore(
@@ -123,23 +141,26 @@ def ensure_datastore(
     user: str,
     password: str,
 ) -> None:
+    resource_url = _rest_url(config, f"workspaces/{WORKSPACE}/datastores/{store}.json")
+    payload = {
+        "dataStore": {
+            "name": store,
+            "enabled": True,
+            "connectionParameters": _connection_parameters(
+                config,
+                schema=schema,
+                user=user,
+                password=password,
+            ),
+        }
+    }
     _create_if_missing(
         session,
-        _rest_url(config, f"workspaces/{WORKSPACE}/datastores/{store}.json"),
+        resource_url,
         _rest_url(config, f"workspaces/{WORKSPACE}/datastores"),
-        {
-            "dataStore": {
-                "name": store,
-                "enabled": True,
-                "connectionParameters": _connection_parameters(
-                    config,
-                    schema=schema,
-                    user=user,
-                    password=password,
-                ),
-            }
-        },
+        payload,
     )
+    _put(session, resource_url, payload)
 
 
 def ensure_feature_type(
@@ -150,26 +171,35 @@ def ensure_feature_type(
     layer: str,
     title: str,
 ) -> None:
+    resource_url = _rest_url(
+        config,
+        f"workspaces/{WORKSPACE}/datastores/{store}/featuretypes/{layer}.json",
+    )
+    payload = {
+        "featureType": {
+            "name": layer,
+            "nativeName": layer,
+            "title": title,
+            "abstract": "NRW energy infrastructure intelligence project layer",
+            "srs": "EPSG:4326",
+            "projectionPolicy": "FORCE_DECLARED",
+            "nativeBoundingBox": NRW_BOUNDS,
+            "latLonBoundingBox": NRW_BOUNDS,
+            "enabled": True,
+            "advertised": True,
+        }
+    }
     _create_if_missing(
         session,
-        _rest_url(
-            config,
-            f"workspaces/{WORKSPACE}/datastores/{store}/featuretypes/{layer}.json",
-        ),
+        resource_url,
         _rest_url(config, f"workspaces/{WORKSPACE}/datastores/{store}/featuretypes"),
-        {
-            "featureType": {
-                "name": layer,
-                "nativeName": layer,
-                "title": title,
-                "abstract": "NRW energy infrastructure intelligence project layer",
-                "srs": "EPSG:4326",
-                "projectionPolicy": "FORCE_DECLARED",
-                "enabled": True,
-                "advertised": True,
-            }
-        },
+        payload,
     )
+    # Schema/CRS reconciliation does not need a full aggregate bounds scan.
+    # GeoServer's REST API supports an empty `recalculate` parameter to retain
+    # existing bounds; this keeps a repair from blocking live WFS on large
+    # canonical relations.
+    _put(session, resource_url, payload, params={"recalculate": ""})
 
 
 def ensure_transactional_wfs(session: requests.Session, config: GeoServerConfig) -> None:
@@ -185,6 +215,22 @@ def ensure_transactional_wfs(session: requests.Session, config: GeoServerConfig)
         timeout=30,
     )
     response.raise_for_status()
+
+
+def ensure_wfs_transaction_access(session: requests.Session, config: GeoServerConfig) -> None:
+    """Allow anonymous WFS-T only when the layer ACL permits that resource."""
+    url = _rest_url(config, "security/acl/services.json")
+    response = session.get(url, timeout=30)
+    response.raise_for_status()
+    current = _flatten_rules(response.json())
+    # GeoServer evaluates this service rule before the per-layer ACL.  Keeping
+    # it authenticated produces a 401 before the scenario-only write rule can
+    # be applied.  Official layers remain denied by their write ACLs and by
+    # the read-only database role used by their datastore.
+    if current.get("wfs.Transaction") != "*":
+        update = session.put if "wfs.Transaction" in current else session.post
+        response = update(url, json={"wfs.Transaction": "*"}, timeout=30)
+        response.raise_for_status()
 
 
 def _flatten_rules(payload: dict) -> dict[str, str]:
@@ -205,30 +251,93 @@ def _flatten_rules(payload: dict) -> dict[str, str]:
 
 
 def ensure_layer_security(session: requests.Session, config: GeoServerConfig) -> None:
-    url = _rest_url(config, "security/acl/layers.json")
-    response = session.get(url, timeout=30)
+    collection_url = _rest_url(config, "security/acl/layers")
+    json_url = f"{collection_url}.json"
+    response = session.get(json_url, timeout=30)
     response.raise_for_status()
     current = _flatten_rules(response.json())
     desired = {
         f"{WORKSPACE}.*.r": "*",
         f"{WORKSPACE}.{SCENARIO_LAYER}.w": "*",
-        **{
-            f"{WORKSPACE}.{layer}.w": "ROLE_ADMINISTRATOR"
-            for layer in PUBLISH_LAYERS
-        },
+        **{f"{WORKSPACE}.{layer}.w": "ROLE_ADMINISTRATOR" for layer in PUBLISH_LAYERS},
     }
+    # Remove only stale NRW write rules. Rules outside the project workspace
+    # belong to the host installation and must be left untouched.
+    stale_writes = sorted(
+        key for key in current if key.startswith(f"{WORKSPACE}.") and key.endswith(".w") and key not in desired
+    )
+    for rule in stale_writes:
+        response = session.delete(f"{collection_url}/{quote(rule, safe='')}", timeout=30)
+        response.raise_for_status()
     missing = {key: value for key, value in desired.items() if key not in current}
-    changed = {
-        key: value
-        for key, value in desired.items()
-        if key in current and current[key] != value
-    }
+    changed = {key: value for key, value in desired.items() if key in current and current[key] != value}
     if missing:
-        response = session.post(url, json=missing, timeout=30)
+        response = session.post(json_url, json=missing, timeout=30)
         response.raise_for_status()
     if changed:
-        response = session.put(url, json=changed, timeout=30)
+        response = session.put(json_url, json=changed, timeout=30)
         response.raise_for_status()
+
+
+def _geofence_wfs_read_layers(payload: dict) -> set[str]:
+    """Return project layers with an anonymous, unrestricted WFS allow rule."""
+    rules = payload.get("rules", [])
+    if isinstance(rules, dict):
+        rules = rules.get("rule", [])
+    if isinstance(rules, dict):
+        rules = [rules]
+    return {
+        str(rule.get("layer"))
+        for rule in rules
+        if rule.get("workspace") == WORKSPACE
+        and rule.get("service") == "WFS"
+        and rule.get("access") == "ALLOW"
+        and not rule.get("request")
+        and not rule.get("userName")
+        and not rule.get("roleName")
+    }
+
+
+def ensure_geofence_wfs_read_bootstrap(session: requests.Session, config: GeoServerConfig) -> None:
+    """Bootstrap GeoFence read access until GeoNode owns the catalog rules.
+
+    GeoServer's layer ACL is evaluated independently from GeoFence.  On an
+    empty GeoFence database, GeoNode cannot discover a newly published layer
+    to create its normal per-resource rules.  Granting only anonymous WFS
+    reads for the declared NRW layers breaks that bootstrap cycle; the
+    subsequent GeoNode catalog sync replaces these rules with the catalog's
+    permission-derived rules.
+    """
+    rules_url = _rest_url(config, "geofence/rules")
+    response = session.get(f"{rules_url}.json", params={"workspace": WORKSPACE, "workspaceAny": "false"}, timeout=30)
+    response.raise_for_status()
+    existing = _geofence_wfs_read_layers(response.json())
+    expected = set(PUBLISH_LAYERS) | {SCENARIO_LAYER}
+    created = False
+    for layer in sorted(expected - existing):
+        response = session.post(
+            rules_url,
+            json={
+                "Rule": {
+                    "workspace": WORKSPACE,
+                    "layer": layer,
+                    "service": "WFS",
+                    "access": "ALLOW",
+                }
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        created = True
+    if created:
+        response = session.put(_rest_url(config, "geofence/ruleCache/invalidate"), timeout=30)
+        response.raise_for_status()
+
+
+def reload_catalog(session: requests.Session, config: GeoServerConfig) -> None:
+    """Make newly created and reconciled feature types visible to OWS immediately."""
+    response = session.post(_rest_url(config, "reload"), timeout=30)
+    response.raise_for_status()
 
 
 def provision_geoserver(session: requests.Session, config: GeoServerConfig) -> None:
@@ -266,7 +375,10 @@ def provision_geoserver(session: requests.Session, config: GeoServerConfig) -> N
         title="Proposed NRW EV Charging Stations",
     )
     ensure_transactional_wfs(session, config)
+    ensure_wfs_transaction_access(session, config)
     ensure_layer_security(session, config)
+    ensure_geofence_wfs_read_bootstrap(session, config)
+    reload_catalog(session, config)
 
 
 def geonode_sync_commands(admin_username: str) -> list[list[str]]:
