@@ -58,13 +58,27 @@ PROJECT_SECRET_KEYS = (
     "NRW_GEOSERVER_READ_PASSWORD",
     "NRW_GEOSERVER_SCENARIO_PASSWORD",
 )
-MINIMUM_DOCKER_MEMORY_BYTES = 6 * 1024**3
+# The bounded local worker pools fit a 4 GiB VM. Docker reports usable RAM
+# after guest/kernel overhead, so accept 3.5 GiB rather than requiring another
+# large allocation that forces an 8 GiB Mac and its browser into swap.
+MINIMUM_DOCKER_MEMORY_BYTES = 3584 * 1024**2
+# GeoServer deploys a large Spring application on a single main thread. Below four
+# CPUs that deployment competes with the JVM's garbage-collector threads and with
+# concurrent django/celery startup, which stretches it past every health deadline
+# and presents as a hung webapp rather than as a starved one.
+MINIMUM_DOCKER_CPUS = 4
 DATABASE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
 
 
 def patch_geoserver_java_opts(value: str) -> str:
     value = re.sub(r"-Xms\S+", "-Xms512m", value)
-    return re.sub(r"-Xmx\S+", "-Xmx1G", value)
+    value = re.sub(r"-Xmx\S+", "-Xmx1G", value)
+    # The local Docker allocation is intentionally modest. During GeoServer's
+    # large Spring application deployment, C2 compilation can otherwise compete
+    # with the single main deployment thread long enough to fail health checks.
+    if "-XX:TieredStopAtLevel=" not in value:
+        value = f"{value} -XX:TieredStopAtLevel=1"
+    return value
 
 
 def patch_env_text(text: str) -> str:
@@ -263,8 +277,8 @@ def docker_is_ready() -> bool:
     return result.returncode == 0
 
 
-def docker_resource_report() -> tuple[int, list[dict[str, object]], int]:
-    """Return Docker memory, usage diagnostics, and free host storage at the repo."""
+def docker_resource_report() -> tuple[int, int, list[dict[str, object]], int]:
+    """Return Docker memory, CPUs, usage diagnostics, and free host storage at the repo."""
     info = subprocess.run(
         ["docker", "info", "--format", "{{json .}}"],
         check=True,
@@ -275,6 +289,9 @@ def docker_resource_report() -> tuple[int, list[dict[str, object]], int]:
     memory = payload.get("MemTotal")
     if not isinstance(memory, int):
         raise RuntimeError("Docker did not report its available memory")
+    cpus = payload.get("NCPU")
+    if not isinstance(cpus, int):
+        raise RuntimeError("Docker did not report its available CPUs")
     disk = subprocess.run(
         ["docker", "system", "df", "--format", "{{json .}}"],
         check=True,
@@ -282,13 +299,14 @@ def docker_resource_report() -> tuple[int, list[dict[str, object]], int]:
         text=True,
     )
     rows = [json.loads(line) for line in disk.stdout.splitlines() if line.strip()]
-    return memory, rows, shutil.disk_usage(ROOT).free
+    return memory, cpus, rows, shutil.disk_usage(ROOT).free
 
 
 def assert_docker_resources() -> None:
-    memory, disk_rows, host_storage_free = docker_resource_report()
+    memory, cpus, disk_rows, host_storage_free = docker_resource_report()
     memory_gib = memory / 1024**3
     print(f"Docker memory: {memory_gib:.1f} GiB")
+    print(f"Docker CPUs: {cpus}")
     for row in disk_rows:
         kind = row.get("Type", "unknown")
         size = row.get("Size", "unknown")
@@ -298,7 +316,15 @@ def assert_docker_resources() -> None:
     print("Docker storage capacity: unknown (docker system df reports usage, not free capacity)")
     if memory < MINIMUM_DOCKER_MEMORY_BYTES:
         raise RuntimeError(
-            f"Docker has {memory_gib:.1f} GiB RAM; at least 6.0 GiB is required"
+            f"Docker has {memory_gib:.1f} GiB RAM; at least 3.5 GiB usable is required "
+            "(allocate 4 GiB in Docker Desktop for the bounded local worker pools)"
+        )
+    if cpus < MINIMUM_DOCKER_CPUS:
+        raise RuntimeError(
+            f"Docker has {cpus} CPU(s); at least {MINIMUM_DOCKER_CPUS} are required. "
+            "GeoServer's web application deployment is single-threaded and starves "
+            "below this, which looks like a hung GeoServer rather than a slow one. "
+            "Raise the CPU allocation in Docker Desktop settings."
         )
 
 

@@ -187,6 +187,10 @@ def ensure_feature_type(
             "latLonBoundingBox": NRW_BOUNDS,
             "enabled": True,
             "advertised": True,
+            # The dashboard validates district coverage from returned features.
+            # Counting this live aggregate first evaluates the expensive view
+            # twice per read; WFS may report numberMatched as unknown instead.
+            "skipNumberMatched": store == PUBLISH_STORE and layer == "nrw_ev_scenario_metrics",
         }
     }
     _create_if_missing(

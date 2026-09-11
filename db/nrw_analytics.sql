@@ -941,7 +941,9 @@ CROSS JOIN analytics.nrw_formula_version fv;
 
 -- EV readiness scenario comparison ------------------------------------------
 CREATE VIEW analytics.nrw_ev_scenario_metrics AS
-WITH effective_chargers AS (
+-- Inline the shared union so district assignment and nearest-station reads
+-- can use the source spatial indexes instead of rescanning a materialized CTE.
+WITH effective_chargers AS NOT MATERIALIZED (
     SELECT
         'official:' || c.source_id AS feature_id,
         c.charging_points,
@@ -965,11 +967,26 @@ WITH effective_chargers AS (
 effective_charger_districts AS (
     SELECT DISTINCT ON (c.feature_id)
         c.feature_id,
-        d.nuts_code
+        d.nuts_code,
+        c.charging_points,
+        c.max_point_power_kw
     FROM effective_chargers c
     JOIN staging.nrw_districts d
       ON ST_Covers(d.geom, c.geom)
     ORDER BY c.feature_id, d.nuts_code
+),
+-- Aggregate narrow station rows first. Carrying district polygons through the
+-- station-level sort/group repeatedly compares large geometries for no benefit.
+scenario_counts AS (
+    SELECT
+        nuts_code,
+        COUNT(*) AS chargers_total,
+        SUM(COALESCE(charging_points, 1)) AS charging_points_total,
+        COUNT(*) FILTER (WHERE max_point_power_kw >= 50) AS fast_chargers_total,
+        COUNT(*) FILTER (WHERE max_point_power_kw < 50) AS normal_chargers_total,
+        COUNT(*) FILTER (WHERE max_point_power_kw IS NULL) AS unknown_power_chargers_total
+    FROM effective_charger_districts
+    GROUP BY nuts_code
 ),
 scenario_raw AS (
     SELECT
@@ -978,50 +995,28 @@ scenario_raw AS (
         d.district_name,
         m.area_km2,
         m.population,
-        COUNT(c.feature_id) AS chargers_total,
-        COALESCE(
-            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.feature_id IS NOT NULL),
-            0
-        ) AS charging_points_total,
-        COUNT(c.feature_id) FILTER (WHERE c.max_point_power_kw >= 50)
-            AS fast_chargers_total,
-        COUNT(c.feature_id) FILTER (WHERE c.max_point_power_kw < 50)
-            AS normal_chargers_total,
-        COUNT(c.feature_id) FILTER (WHERE c.max_point_power_kw IS NULL)
-            AS unknown_power_chargers_total,
-        COALESCE(
-            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.feature_id IS NOT NULL),
-            0
-        ) / NULLIF(m.area_km2, 0) AS charging_points_per_km2,
-        COUNT(c.feature_id) / NULLIF(m.area_km2, 0) AS chargers_per_km2,
-        COALESCE(
-            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.feature_id IS NOT NULL),
-            0
-        ) * 100000.0 / NULLIF(m.population, 0)
+        COALESCE(c.chargers_total, 0) AS chargers_total,
+        COALESCE(c.charging_points_total, 0) AS charging_points_total,
+        COALESCE(c.fast_chargers_total, 0) AS fast_chargers_total,
+        COALESCE(c.normal_chargers_total, 0) AS normal_chargers_total,
+        COALESCE(c.unknown_power_chargers_total, 0) AS unknown_power_chargers_total,
+        COALESCE(c.charging_points_total, 0) / NULLIF(m.area_km2, 0)
+            AS charging_points_per_km2,
+        COALESCE(c.chargers_total, 0) / NULLIF(m.area_km2, 0) AS chargers_per_km2,
+        COALESCE(c.charging_points_total, 0) * 100000.0 / NULLIF(m.population, 0)
             AS charging_points_per_100k_population,
         nearest.distance_to_nearest_charger_m,
         d.geom
     FROM staging.nrw_districts d
     JOIN analytics.nrw_district_metrics m USING (nuts_code)
-    LEFT JOIN effective_charger_districts a ON a.nuts_code = d.nuts_code
-    LEFT JOIN effective_chargers c ON c.feature_id = a.feature_id
+    LEFT JOIN scenario_counts c USING (nuts_code)
     LEFT JOIN LATERAL (
-        -- The scenario nearest station is selected and measured in EPSG:25832
-        -- exactly like the baseline, so a scenario delta never mixes a
-        -- degree-ordered selection with a metre-valued distance.
+        -- Keep the baseline's projected nearest-station selection and distance.
         SELECT ST_Distance(d.centroid_25832, cn.geom_25832) AS distance_to_nearest_charger_m
         FROM effective_chargers cn
         ORDER BY d.centroid_25832 <-> cn.geom_25832
         LIMIT 1
     ) nearest ON true
-    GROUP BY
-        d.nuts_code,
-        d.ags,
-        d.district_name,
-        m.area_km2,
-        m.population,
-        nearest.distance_to_nearest_charger_m,
-        d.geom
 ),
 components AS (
     SELECT

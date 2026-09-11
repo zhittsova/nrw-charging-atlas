@@ -2,7 +2,19 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "../style.css";
 import { createScenarioClient, type GeoJsonFeatureCollection } from "./scenarioClient";
-import { projectScenarioProperties, type ScenarioViewMode } from "./scenarioState";
+import {
+  CANONICAL_DISTRICT_FIELDS,
+  CANONICAL_STATION_FIELDS,
+  readLayer,
+  type LayerRead,
+  type LayerState
+} from "./dataSources";
+import {
+  projectScenarioProperties,
+  scenarioMetricCoverageIssue,
+  stationTotalForView,
+  type ScenarioViewMode
+} from "./scenarioState";
 import {
   AUTOBAHN_STYLE,
   REGIONAL_ROAD_STYLE,
@@ -35,28 +47,14 @@ type RegionProperties = {
   region?: string;
   region_abbr?: string;
   box?: [number, number, number, number];
-  stationCount?: number;
   chargers_total?: number;
   charging_points_total?: number;
-  fast_chargers?: number;
-  normal_chargers?: number;
   chargers_per_km2?: number;
-  evReadinessScore?: number;
   ev_readiness_score?: number;
-  chargingSupplyScore?: number;
-  charging_supply_score?: number;
-  chargerDeficitScore?: number;
   charger_deficit_score?: number;
-  investmentPriorityScore?: number;
   investment_priority_score?: number;
-  infrastructureOpportunityScore?: number;
   infrastructure_opportunity_score?: number;
-  priorityRank?: number;
   priority_rank?: number;
-  priorityTier?: string;
-  priority_tier?: string;
-  dataQualityScore?: number;
-  data_quality_score?: number;
   dataQualityFlag?: string;
   data_quality_flag?: string;
   scenario_view_mode?: ScenarioViewMode;
@@ -76,6 +74,7 @@ type StationProperties = {
   charging_points?: number;
   connectors?: number;
   status?: string;
+  charger_type?: string;
   [key: string]: unknown;
 };
 
@@ -162,10 +161,10 @@ const scoreLabels: Record<ScoreMetric, string> = {
 };
 
 const scoreKeys: Record<ScoreMetric, string[]> = {
-  investmentPriorityScore: ["investmentPriorityScore", "investment_priority_score"],
-  evReadinessScore: ["evReadinessScore", "ev_readiness_score", "chargingSupplyScore", "charging_supply_score"],
-  chargerDeficitScore: ["chargerDeficitScore", "charger_deficit_score"],
-  infrastructureOpportunityScore: ["infrastructureOpportunityScore", "infrastructure_opportunity_score"]
+  investmentPriorityScore: ["investment_priority_score"],
+  evReadinessScore: ["ev_readiness_score"],
+  chargerDeficitScore: ["charger_deficit_score"],
+  infrastructureOpportunityScore: ["infrastructure_opportunity_score"]
 };
 
 let activeScore: ScoreMetric = "investmentPriorityScore";
@@ -173,6 +172,7 @@ let activeRanking: ScoreMetric = "investmentPriorityScore";
 let scenarioViewMode: ScenarioViewMode = "baseline";
 let regionFeatures: Feature<RegionProperties>[] = [];
 let scenarioMetricFeatures: Feature<RegionProperties>[] = [];
+let baselineRegionFeatures: Feature<RegionProperties>[] = [];
 let officialStations: FeatureCollection<StationProperties> = { type: "FeatureCollection", features: [] };
 let autobahnFeatures: FeatureCollection<RoadProperties> = { type: "FeatureCollection", features: [] };
 let renewableAssets: FeatureCollection<RenewableProperties> = { type: "FeatureCollection", features: [] };
@@ -181,6 +181,8 @@ let selectedRegionId: string | null = null;
 let selectedLayer: L.Layer | null = null;
 let pendingLocation: L.LatLng | null = null;
 let awaitingMapClick = false;
+let scenarioServiceAvailable = false;
+const layerStates: Partial<Record<"districts" | "stations" | "renewables" | "regional roads" | "autobahns", LayerRead<unknown>>> = {};
 
 const map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: false }).setView(NRW_CENTER, 7);
 map.createPane("regions");
@@ -207,7 +209,7 @@ const stationLayer = L.geoJSON(undefined, {
   pane: "stations",
   pointToLayer: (feature, latlng) => {
     const p = feature.properties as StationProperties;
-    const maxPointPower = numericValue(p, ["max_point_power_kw"], 0);
+    const maxPointPower = numericValue(p, ["max_point_power_kw"]);
     return L.circleMarker(latlng, officialStationStyle(maxPointPower, map.getZoom()));
   },
   onEachFeature: (feature, layer) => {
@@ -220,12 +222,15 @@ const stationLayer = L.geoJSON(undefined, {
     });
     layer.bindPopup(`
       <div class="station-popup">
-        <h3>${escapeHtml(textValue(p, ["name"], "Charging station"))}</h3>
+        <h3>${escapeHtml(textValue(p, ["name", "operator"], "Charging station"))}</h3>
         <p><strong>Operator:</strong> ${escapeHtml(textValue(p, ["operator"], "unknown"))}</p>
-        <p><strong>District:</strong> ${escapeHtml(textValue(p, ["district_name", "region"], "NRW"))}</p>
-        <p><strong>Address:</strong> ${escapeHtml(textValue(p, ["address"], "not available"))}</p>
-        <p><strong>Power:</strong> ${formatNumber(numericValue(p, ["power_kw"], 0))} kW</p>
-        <p><strong>Charging points:</strong> ${formatNumber(numericValue(p, ["charging_points", "connectors"], 0))}</p>
+        <p><strong>District:</strong> ${escapeHtml(textValue(p, ["district_text", "district_name", "region"], "NRW"))}</p>
+        <p><strong>Address:</strong> ${escapeHtml(textValue(p, ["street", "address"], "not available"))}</p>
+        <p><strong>Power:</strong> ${formatNumber(numericValue(p, ["power_kw"]))} kW</p>
+        <p><strong>Maximum point power:</strong> ${formatNumber(numericValue(p, ["max_point_power_kw"]))} kW</p>
+        <p><strong>Charging points:</strong> ${formatNumber(numericValue(p, ["charging_points", "connectors"]))}</p>
+        <p><strong>Type:</strong> ${escapeHtml(textValue(p, ["charger_type"], "not available"))}</p>
+        <p><strong>Status:</strong> ${escapeHtml(textValue(p, ["status"], "not available"))}</p>
       </div>
     `);
   }
@@ -247,9 +252,9 @@ const regionalRoadLayer = L.geoJSON(undefined, {
     const p = feature.properties as RoadProperties;
     const roadName = textValue(p, ["name", "road_number"], "Regional road");
     const roadClass = textValue(p, ["road_class"], "B/L");
-    const traffic = numericValue(p, ["traffic_total"], 0);
+    const traffic = numericValue(p, ["traffic_total"]);
     layer.bindTooltip(
-      `<strong>${escapeHtml(roadName)}</strong><span>${escapeHtml(roadClass)} road${traffic ? ` · ${formatNumber(traffic)} vehicles/day` : ""}</span>`,
+      `<strong>${escapeHtml(roadName)}</strong><span>${escapeHtml(roadClass)} road${traffic !== null ? ` · ${formatNumber(traffic)} vehicles/day` : ""}</span>`,
       { className: "road-tooltip", sticky: true }
     );
   }
@@ -281,13 +286,13 @@ const renewableAssetLayer = L.geoJSON(undefined, {
     const properties = feature.properties as RenewableProperties;
     return L.circleMarker(
       latlng,
-      renewableAssetStyle(properties.technology, numericValue(properties, ["capacity_mw"], 0), map.getZoom())
+      renewableAssetStyle(properties.technology, numericValue(properties, ["capacity_mw"]), map.getZoom())
     );
   },
   onEachFeature: (feature, layer) => {
     const properties = feature.properties as RenewableProperties;
     const technology = renewableTechnologyLabel(properties.technology);
-    const capacity = numericValue(properties, ["capacity_mw"], 0);
+    const capacity = numericValue(properties, ["capacity_mw"]);
     const operator = textValue(properties, ["operator"], "").trim();
     const operatorDetail = operator ? ` · ${escapeHtml(operator)}` : "";
     layer.bindTooltip(
@@ -359,8 +364,8 @@ const proposedStationLayer = L.geoJSON(undefined, {
       <h3>${escapeHtml(textValue(p, ["name"], "Proposed station"))}</h3>
       <p><strong>Status:</strong> Proposed scenario</p>
       <p><strong>District:</strong> ${escapeHtml(textValue(p, ["nuts_code"], "NRW"))}</p>
-      <p><strong>Power:</strong> ${formatNumber(numericValue(p, ["power_kw"], 0))} kW</p>
-      <p><strong>Charging points:</strong> ${formatNumber(numericValue(p, ["charging_points"], 0))}</p>
+      <p><strong>Power:</strong> ${formatNumber(numericValue(p, ["power_kw"]))} kW</p>
+      <p><strong>Charging points:</strong> ${formatNumber(numericValue(p, ["charging_points"]))}</p>
     `;
     const removeButton = document.createElement("button");
     removeButton.type = "button";
@@ -464,10 +469,10 @@ function textValue(properties: Record<string, unknown>, keys: string[], fallback
   return value === undefined ? fallback : String(value);
 }
 
-function numericValue(properties: Record<string, unknown>, keys: string[], fallback = 0): number {
+function numericValue(properties: Record<string, unknown>, keys: string[]): number | null {
   const value = firstValue(properties, keys);
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function regionName(properties: RegionProperties): string {
@@ -475,18 +480,20 @@ function regionName(properties: RegionProperties): string {
 }
 
 function regionId(properties: RegionProperties): string {
-  return textValue(properties, ["id", "nuts_code", "district_code", "name"], regionName(properties));
+  return textValue(properties, ["nuts_code"], regionName(properties));
 }
 
-function scoreValue(properties: RegionProperties, metric: ScoreMetric): number {
-  return numericValue(properties, scoreKeys[metric], 0);
+function scoreValue(properties: RegionProperties, metric: ScoreMetric): number | null {
+  return numericValue(properties, scoreKeys[metric]);
 }
 
-function formatNumber(value: number): string {
+function formatNumber(value: number | null): string {
+  if (value === null) return "—";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value);
 }
 
-function formatScore(value: number, signed = scenarioViewMode === "change"): string {
+function formatScore(value: number | null, signed = scenarioViewMode === "change"): string {
+  if (value === null) return "—";
   const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1);
   return signed && value > 0 ? `+${formatted}` : formatted;
 }
@@ -508,8 +515,8 @@ function geoserverWfsUrl(typeName: string): string {
   return `${baseUrl}/geoserver/ows?${query.toString()}`;
 }
 
-function scoreColor(score: number, metric: ScoreMetric = activeScore): string {
-  return presentationScoreColor(score, scenarioViewMode, metric);
+function scoreColor(score: number | null, metric: ScoreMetric = activeScore): string {
+  return score === null ? "#475569" : presentationScoreColor(score, scenarioViewMode, metric);
 }
 
 function regionStyle(feature: Feature<RegionProperties>): L.PathOptions {
@@ -551,9 +558,9 @@ function fitFeature(feature: Feature<RegionProperties>): void {
 }
 
 function sortedRegions(metric: ScoreMetric): Feature<RegionProperties>[] {
-  return [...regionFeatures].sort((a, b) => {
-    const aScore = scoreValue(a.properties, metric);
-    const bScore = scoreValue(b.properties, metric);
+  return regionFeatures.filter((feature) => scoreValue(feature.properties, metric) !== null).sort((a, b) => {
+    const aScore = scoreValue(a.properties, metric)!;
+    const bScore = scoreValue(b.properties, metric)!;
     return scenarioViewMode === "change"
       ? Math.abs(bScore) - Math.abs(aScore)
       : bScore - aScore;
@@ -562,18 +569,26 @@ function sortedRegions(metric: ScoreMetric): Feature<RegionProperties>[] {
 
 function renderKpis(): void {
   const isChangeView = scenarioViewMode === "change";
-  const readinessScores = regionFeatures.map((feature) => scoreValue(feature.properties, "evReadinessScore"));
-  const averageReadiness = readinessScores.reduce((sum, score) => sum + score, 0) / Math.max(1, readinessScores.length);
+  const readinessScores = regionFeatures
+    .map((feature) => scoreValue(feature.properties, "evReadinessScore"))
+    .filter((score): score is number => score !== null);
+  const averageReadiness = readinessScores.length
+    ? readinessScores.reduce((sum, score) => sum + score, 0) / readinessScores.length
+    : null;
   const bestReadiness = sortedRegions("evReadinessScore")[0]?.properties;
   const underserved = sortedRegions("chargerDeficitScore")[0]?.properties;
   const priority = sortedRegions("investmentPriorityScore")[0]?.properties;
-  const stationTotal = scenarioViewMode === "baseline"
-    ? officialStations.features.length
-    : scenarioViewMode === "scenario"
-      ? officialStations.features.length + proposedStations.features.length
-      : proposedStations.features.length;
+  const stationDataUnavailable = layerStates.stations?.state === "unavailable";
+  const stationTotal = stationTotalForView(
+    officialStations.features.length,
+    proposedStations.features.length,
+    scenarioViewMode,
+    !stationDataUnavailable
+  );
 
-  setText("kpi-total-stations-label", isChangeView ? "Proposed stations" : "Total NRW stations");
+  setText("kpi-total-stations-label", stationDataUnavailable
+    ? "Total NRW stations (unavailable)"
+    : isChangeView ? "Proposed stations" : "Total NRW stations");
   setText("kpi-average-readiness-label", isChangeView ? "Avg EV readiness change" : "Avg EV readiness");
   setText("kpi-best-readiness-label", isChangeView ? "Largest readiness change" : "Best EV readiness");
   setText("kpi-underserved-label", isChangeView ? "Largest charging-gap change" : "Most underserved");
@@ -588,8 +603,11 @@ function renderKpis(): void {
       ? "Largest absolute change in investment priority."
       : "60% charging gap + 40% infrastructure opportunity."
   );
-  setText("kpi-total-stations", new Intl.NumberFormat("en-US").format(stationTotal));
-  setText("kpi-average-density", isChangeView ? formatScore(averageReadiness) : `${averageReadiness.toFixed(0)} / 100`);
+  setText("kpi-total-stations", stationTotal === null ? "—" : new Intl.NumberFormat("en-US").format(stationTotal));
+  setText("kpi-total-stations-note", stationDataUnavailable
+    ? "Official station data could not be read, so a total cannot be calculated."
+    : "");
+  setText("kpi-average-density", averageReadiness === null ? "—" : isChangeView ? formatScore(averageReadiness) : `${averageReadiness.toFixed(0)} / 100`);
   setText("kpi-best-region", bestReadiness ? regionName(bestReadiness) : "-");
   setText("kpi-underserved-region", underserved ? regionName(underserved) : "-");
   setText("kpi-priority-region", priority ? regionName(priority) : "-");
@@ -610,14 +628,13 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
   const readiness = scoreValue(p, "evReadinessScore");
   const deficit = scoreValue(p, "chargerDeficitScore");
   const infrastructure = scoreValue(p, "infrastructureOpportunityScore");
-  const rank = numericValue(p, ["priorityRank", "priority_rank"], sortedRegions("investmentPriorityScore").findIndex((item) => regionId(item.properties) === regionId(p)) + 1);
-  const tier = textValue(p, ["priorityTier", "priority_tier"], "screening");
+  const rank = numericValue(p, ["priority_rank"]);
   const isChangeView = scenarioViewMode === "change";
   const recommendation = isChangeView
     ? "This is a change view, not a site recommendation. Positive EV readiness means a stronger relative charging score; negative deficit or priority means less relative charging need."
-    : investment >= 70
+    : investment !== null && investment >= 70
       ? "High screening priority. Charger supply is weak relative to other NRW districts, so this district should be checked first once demand and road layers are joined."
-      : readiness >= 70
+      : readiness !== null && readiness >= 70
         ? "Strong EV readiness in the selected view. Use the baseline comparison before changing investment priority."
         : "Medium screening case. Compare the baseline and scenario values before making a planning decision.";
   const labels = isChangeView
@@ -642,9 +659,9 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
 
   const comparison = p.baseline_ev_readiness_score === undefined ? "" : `
     <div class="comparison-grid" aria-label="Baseline and scenario comparison">
-      <div><span>Baseline readiness</span><strong>${formatScore(numericValue(p, ["baseline_ev_readiness_score"], 0), false)}</strong></div>
-      <div><span>Scenario readiness</span><strong>${formatScore(numericValue(p, ["scenario_ev_readiness_score"], 0), false)}</strong></div>
-      <div><span>Change</span><strong>${formatScore(numericValue(p, ["ev_readiness_score_delta"], 0), true)}</strong></div>
+      <div><span>Baseline readiness</span><strong>${formatScore(numericValue(p, ["baseline_ev_readiness_score"]), false)}</strong></div>
+      <div><span>Scenario readiness</span><strong>${formatScore(numericValue(p, ["scenario_ev_readiness_score"]), false)}</strong></div>
+      <div><span>Change</span><strong>${formatScore(numericValue(p, ["ev_readiness_score_delta"]), true)}</strong></div>
     </div>`;
 
   detail.innerHTML = `
@@ -654,16 +671,16 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
     </div>
     <div class="detail-grid">
       <div class="detail-metric"><span>NUTS-3</span><strong>${escapeHtml(textValue(p, ["nuts_code"], "-"))}</strong></div>
-      <div class="detail-metric"><span>${labels.stations}</span><strong>${formatNumber(numericValue(p, ["stationCount", "chargers_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>${labels.points}</span><strong>${formatNumber(numericValue(p, ["charging_points_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>${labels.fastChargers}</span><strong>${formatNumber(numericValue(p, ["fast_chargers", "fast_chargers_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.stations}</span><strong>${formatNumber(numericValue(p, ["chargers_total"]))}</strong></div>
+      <div class="detail-metric"><span>${labels.points}</span><strong>${formatNumber(numericValue(p, ["charging_points_total"]))}</strong></div>
+      <div class="detail-metric"><span>${labels.fastChargers}</span><strong>${formatNumber(numericValue(p, ["fast_chargers_total"]))}</strong></div>
       <div class="detail-metric"><span>${labels.readiness}</span><strong>${formatScore(readiness)}</strong></div>
       <div class="detail-metric"><span>${labels.deficit}</span><strong>${formatScore(deficit)}</strong></div>
-      <div class="detail-metric"><span>${labels.rank}</span><strong>#${formatNumber(rank)}</strong></div>
+      <div class="detail-metric"><span>${labels.rank}</span><strong>${rank === null ? "—" : `#${formatNumber(rank)}`}</strong></div>
       <div class="detail-metric"><span>${labels.infrastructure}</span><strong>${formatScore(infrastructure)}</strong></div>
     </div>
     ${comparison}
-    <p class="recommendation">${escapeHtml(recommendation)}${isChangeView ? "" : ` Current tier: ${escapeHtml(tier)}.`}</p>
+    <p class="recommendation">${escapeHtml(recommendation)}</p>
   `;
 }
 
@@ -689,7 +706,9 @@ function selectRegion(feature: Feature<RegionProperties>, layer?: L.Layer): void
 
 function renderRanking(metric: ScoreMetric = activeRanking): void {
   activeRanking = metric;
-  setText("ranking-count", `${regionFeatures.length} districts`);
+  const ranked = sortedRegions(metric);
+  const unavailable = regionFeatures.filter((feature) => scoreValue(feature.properties, metric) === null);
+  setText("ranking-count", `${ranked.length} ranked${unavailable.length ? `; ${unavailable.length} unavailable` : ""}`);
   setText("ranking-explanation", scenarioViewMode === "change"
     ? "Largest absolute changes first. Positive and negative values are changes in score points, not current scores."
     : "All districts, highest scores first. Scroll to see more; select a district for details.");
@@ -710,11 +729,11 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
   });
 
   list.innerHTML = "";
-  sortedRegions(metric)
+  ranked
     .forEach((feature, index) => {
       const p = feature.properties;
       const score = scoreValue(p, metric);
-      const width = Math.max(8, Math.min(100, Math.abs(score)));
+      const width = Math.max(8, Math.min(100, Math.abs(score!)));
       const item = document.createElement("li");
       item.className = "ranking-item";
       item.tabIndex = 0;
@@ -736,25 +755,61 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
       });
       list.appendChild(item);
     });
+  if (unavailable.length) {
+    const heading = document.createElement("li");
+    heading.className = "ranking-unavailable";
+    heading.textContent = `Unavailable ${scoreLabels[metric]} (${unavailable.length}) — not ranked`;
+    list.appendChild(heading);
+    unavailable.forEach((feature) => {
+      const item = document.createElement("li");
+      item.className = "ranking-item ranking-item-unavailable";
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.textContent = `${regionName(feature.properties)} — unavailable`;
+      item.addEventListener("click", () => {
+        selectRegion(feature);
+        fitFeature(feature);
+      });
+      list.appendChild(item);
+    });
+  }
 }
 
-async function fetchGeoJson<T>(path: string): Promise<FeatureCollection<T>> {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`Could not load ${path}`);
-  return response.json();
+function readStateLabel(state: LayerState): string {
+  return state === "live" ? "live WFS" : state === "snapshot" ? "canonical snapshot" : state === "stale" ? "stale snapshot" : "unavailable";
 }
 
-async function loadGeoJsonWithFallback<T>(primaryPath: string, fallbackPath: string): Promise<{ data: FeatureCollection<T>; source: string }> {
-  if (primaryPath === fallbackPath) {
-    return { data: await fetchGeoJson<T>(primaryPath), source: `Local GeoJSON: ${fallbackPath}` };
+function renderReadStates(): void {
+  const states = Object.entries(layerStates)
+    .map(([layer, result]) => `${layer}: ${readStateLabel(result.state)}`);
+  const required = [layerStates.districts, layerStates.stations];
+  const allLive = required.every((result) => result?.state === "live");
+  setHeaderStatus(allLive ? "Live WFS data" : states.some((state) => state.includes("unavailable")) ? "Data availability limited" : "Canonical snapshot data");
+  const districtState = layerStates.districts;
+  setText("data-quality-note", districtState?.state === "live"
+    ? "District data is live from the canonical WFS layer. Scores are relative screening measures; inspect the methods and district details before drawing conclusions."
+    : districtState?.state === "snapshot" || districtState?.state === "stale"
+      ? `${districtState.state === "stale" ? "Stale" : "Canonical"} district snapshot in use. It carries the same published fields as the live layer; source state is shown below.`
+      : "District comparisons are unavailable because neither the canonical WFS layer nor a valid canonical snapshot could be read.");
+  const note = document.querySelector(".map-note");
+  if (note) {
+    note.textContent = `${states.join("; ") || "data unavailable"}. Renewable overlay: operating wind assets and ground-mounted solar farms only; building-mounted solar is hidden. This display filter does not change district energy totals.`;
   }
+}
 
-  try {
-    return { data: await fetchGeoJson<T>(primaryPath), source: `GeoNode WFS: ${primaryPath}` };
-  } catch (error) {
-    console.warn(`Falling back from ${primaryPath} to ${fallbackPath}`, error);
-    return { data: await fetchGeoJson<T>(fallbackPath), source: `Local GeoJSON fallback: ${fallbackPath}` };
+function setScenarioAvailability(available: boolean, detail: string): void {
+  scenarioServiceAvailable = available;
+  document.querySelectorAll<HTMLButtonElement>("[data-scenario-mode], #scenario-add-button, #map-add-station, #scenario-reset-button")
+    .forEach((control) => { control.disabled = !available && control.dataset.scenarioMode !== "baseline"; });
+  if (!available) {
+    scenarioViewMode = "baseline";
+    regionFeatures = baselineRegionFeatures;
+    document.querySelectorAll<HTMLElement>("[data-scenario-mode]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.scenarioMode === "baseline");
+    });
+    renderAnalytics();
   }
+  setScenarioStatus(available ? detail : `Scenario editing is unavailable: ${detail}. Baseline data remains read-only.`, !available);
 }
 
 function renderAnalytics(): void {
@@ -771,11 +826,17 @@ function renderAnalytics(): void {
 }
 
 function applyScenarioView(mode: ScenarioViewMode): void {
+  if (mode !== "baseline" && !scenarioServiceAvailable) {
+    setScenarioAvailability(false, "the scenario service is not available");
+    return;
+  }
   scenarioViewMode = mode;
   document.querySelectorAll<HTMLElement>("[data-scenario-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.scenarioMode === mode);
   });
-  if (scenarioMetricFeatures.length) {
+  if (mode === "baseline") {
+    regionFeatures = baselineRegionFeatures;
+  } else {
     regionFeatures = scenarioMetricFeatures.map((feature) => ({
       ...feature,
       properties: projectScenarioProperties(feature.properties, mode) as RegionProperties
@@ -814,8 +875,8 @@ function renderProposedStations(): void {
     summary.type = "button";
     summary.className = "scenario-station-summary";
     summary.innerHTML = `<strong>${escapeHtml(textValue(p, ["name"], "Proposed station"))}</strong>`
-      + `<span>${formatNumber(numericValue(p, ["charging_points"], 0))} points · `
-      + `${formatNumber(numericValue(p, ["power_kw"], 0))} kW</span>`;
+      + `<span>${formatNumber(numericValue(p, ["charging_points"]))} points · `
+      + `${formatNumber(numericValue(p, ["power_kw"]))} kW</span>`;
     summary.addEventListener("click", () => {
       const point = feature.geometry as GeoJSON.Point;
       if (point?.type === "Point") map.setView([point.coordinates[1], point.coordinates[0]], 13);
@@ -835,11 +896,16 @@ async function refreshScenarioData(successMessage?: string): Promise<void> {
     scenarioClient.loadProposedChargers(),
     scenarioClient.loadScenarioMetrics()
   ]);
+  const issue = scenarioMetricCoverageIssue(
+    metrics.features as Feature<RegionProperties>[],
+    baselineRegionFeatures
+  );
+  if (issue) throw new Error(`Scenario metrics are unavailable: ${issue}`);
   proposedStations = proposed as FeatureCollection<StationProperties>;
   scenarioMetricFeatures = metrics.features as Feature<RegionProperties>[];
   renderProposedStations();
   applyScenarioView(scenarioViewMode);
-  setScenarioStatus(successMessage ?? "Scenario is ready. Indicators update after every edit.");
+  setScenarioAvailability(true, successMessage ?? "Scenario is ready. Indicators update after every edit.");
 }
 
 async function removeScenarioStation(id: string): Promise<void> {
@@ -854,6 +920,10 @@ async function removeScenarioStation(id: string): Promise<void> {
 }
 
 function beginAddScenarioStation(): void {
+  if (!scenarioServiceAvailable) {
+    setScenarioAvailability(false, "the scenario service is not available");
+    return;
+  }
   awaitingMapClick = true;
   map.getContainer().classList.add("scenario-pick-mode");
   setScenarioStatus("Click a location inside NRW for the proposed station.");
@@ -885,64 +955,56 @@ map.on("click", (event) => {
 
 async function boot(): Promise<void> {
   renderRegionDetail(null);
-
-  const [regionsResult, stationsResult, renewableResult] = await Promise.all([
-    loadGeoJsonWithFallback<RegionProperties>(
-      geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer),
-      "data/nrw_regions_sample.geojson"
-    ),
-    loadGeoJsonWithFallback<StationProperties>(
-      geoserverWfsUrl(runtimeConfig.geonodeStationsLayer),
-      "data/nrw_charging_stations_sample.geojson"
-    ),
-    loadGeoJsonWithFallback<RenewableProperties>(
-      geoserverWfsUrl(runtimeConfig.renewableAssetsLayer),
-      "data/nrw_renewable_assets_sample.geojson"
-    )
+  const manifestPath = "data/manifest.json";
+  const [regionsResult, stationsResult] = await Promise.all([
+    readLayer(geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer), "data/nrw_regions_sample.geojson", CANONICAL_DISTRICT_FIELDS, { manifestPath }),
+    readLayer(geoserverWfsUrl(runtimeConfig.geonodeStationsLayer), "data/nrw_charging_stations_sample.geojson", CANONICAL_STATION_FIELDS, { manifestPath })
   ]);
+  Object.assign(layerStates, {
+    districts: regionsResult,
+    stations: stationsResult
+  });
 
-  const regions = regionsResult.data;
-  const stations = stationsResult.data;
-
-  const roadResults = await Promise.allSettled([
-    loadGeoJsonWithFallback<RoadProperties>(
-      geoserverWfsUrl(runtimeConfig.regionalRoadsLayer),
-      "data/nrw_regional_roads_sample.geojson"
-    ),
-    loadGeoJsonWithFallback<RoadProperties>(
-      geoserverWfsUrl(runtimeConfig.autobahnsLayer),
-      "data/nrw_autobahns_sample.geojson"
-    )
-  ]);
-  if (roadResults[0].status === "fulfilled") regionalRoadLayer.addData(roadResults[0].value.data);
-  if (roadResults[1].status === "fulfilled") {
-    autobahnFeatures = roadResults[1].value.data;
-  }
-
-  regionFeatures = regions.features as Feature<RegionProperties>[];
-  officialStations = stations;
-  renewableAssets = renewableResult.data;
+  baselineRegionFeatures = (regionsResult.data?.features ?? []) as Feature<RegionProperties>[];
+  regionFeatures = baselineRegionFeatures;
+  officialStations = (stationsResult.data as FeatureCollection<StationProperties> | undefined)
+    ?? { type: "FeatureCollection", features: [] };
   refreshZoomLayers();
   restoreOverlayOrder();
   renderAnalytics();
   renderProposedStations();
-  const connectedSourceCount = [regionsResult.source, stationsResult.source, renewableResult.source]
-    .filter((source) => source.startsWith("GeoNode")).length;
-  setHeaderStatus(connectedSourceCount > 0 ? "GeoNode WFS connected" : "Local GeoJSON fallback");
-  setText("data-quality-note", regionsResult.source.startsWith("GeoNode")
-    ? "District data loaded from WFS. Scores are relative screening measures; inspect the methods and district details before drawing conclusions."
-    : "Limited comparison: district data comes from a local snapshot with simplified charger-supply scores. It does not provide the full population, accessibility and infrastructure assessment described above. Use this view to explore the interface, not to decide where to build.");
-  const note = document.querySelector(".map-note");
-  if (note) {
-    note.textContent = `Districts: ${regionsResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}; stations: ${stationsResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}; renewables: ${renewableResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}. Renewable overlay: operating wind assets and ground-mounted solar farms only; building-mounted solar is hidden. Zoom in to see more locations. This display filter does not change district energy totals.`;
-  }
+  renderReadStates();
   map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });
   try {
     await refreshScenarioData();
   } catch (error) {
     console.warn("Scenario layers are not available", error);
-    setScenarioStatus("Scenario editing is unavailable until the local GeoServer layers are initialized.", true);
+    setScenarioAvailability(false, error instanceof Error ? error.message : "the scenario layers could not be read");
   }
+  void loadOptionalOverlays(manifestPath);
+}
+
+async function loadOptionalOverlays(manifestPath: string): Promise<void> {
+  const [renewableResult, regionalRoadResult, autobahnResult] = await Promise.all([
+    // Optional overlays have manifest-validated canonical snapshots. Selecting
+    // those avoids heavyweight GeoServer overlay queries competing with the
+    // required baseline and scenario reads.
+    readLayer(geoserverWfsUrl(runtimeConfig.renewableAssetsLayer), "data/nrw_renewable_assets_sample.geojson", ["source_id", "technology", "capacity_mw", "status"], { manifestPath, preferSnapshot: true }),
+    readLayer(geoserverWfsUrl(runtimeConfig.regionalRoadsLayer), "data/nrw_regional_roads_sample.geojson", ["source_id"], { manifestPath, preferSnapshot: true }),
+    readLayer(geoserverWfsUrl(runtimeConfig.autobahnsLayer), "data/nrw_autobahns_sample.geojson", ["source_id"], { manifestPath, preferSnapshot: true })
+  ]);
+  Object.assign(layerStates, {
+    renewables: renewableResult,
+    "regional roads": regionalRoadResult,
+    autobahns: autobahnResult
+  });
+  if (regionalRoadResult.data) regionalRoadLayer.addData(regionalRoadResult.data as FeatureCollection<RoadProperties>);
+  if (autobahnResult.data) autobahnFeatures = autobahnResult.data as FeatureCollection<RoadProperties>;
+  renewableAssets = (renewableResult.data as FeatureCollection<RenewableProperties> | undefined)
+    ?? { type: "FeatureCollection", features: [] };
+  refreshZoomLayers();
+  restoreOverlayOrder();
+  renderReadStates();
 }
 
 function chooseIndicator(metric: ScoreMetric): void {

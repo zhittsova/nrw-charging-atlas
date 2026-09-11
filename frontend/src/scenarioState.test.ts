@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { projectScenarioProperties } from "./scenarioState";
+import { projectScenarioProperties, scenarioMetricCoverageIssue, stationTotalForView } from "./scenarioState";
 
 
 const metrics = {
@@ -29,13 +29,31 @@ const metrics = {
 };
 
 describe("scenario display state", () => {
+  it("requires one scenario metric for every canonical baseline district", () => {
+    const baseline = [{ properties: { nuts_code: "DEA01" } }, { properties: { nuts_code: "DEA02" } }];
+    expect(scenarioMetricCoverageIssue([{ properties: { nuts_code: "DEA01" } }], baseline)).toContain("1 missing");
+    expect(scenarioMetricCoverageIssue([
+      { properties: { nuts_code: "DEA01" } },
+      { properties: { nuts_code: "DEA01" } }
+    ], baseline)).toContain("duplicate");
+    expect(scenarioMetricCoverageIssue([
+      { properties: { nuts_code: "DEA01" } },
+      { properties: { nuts_code: "DEA02" } }
+    ], baseline)).toBeNull();
+  });
+
+  it("keeps an unavailable official-station total distinct from a real zero", () => {
+    expect(stationTotalForView(0, 3, "baseline", false)).toBeNull();
+    expect(stationTotalForView(0, 3, "scenario", false)).toBeNull();
+    expect(stationTotalForView(0, 3, "scenario", true)).toBe(3);
+    expect(stationTotalForView(0, 0, "baseline", true)).toBe(0);
+  });
   it("projects baseline fields into the canonical dashboard fields", () => {
     expect(projectScenarioProperties(metrics, "baseline")).toMatchObject({
       chargers_total: 10,
       charging_points_total: 20,
       fast_chargers_total: 4,
       ev_readiness_score: 40,
-      charging_supply_score: 40,
       charger_deficit_score: 60,
       investment_priority_score: 70,
       priority_rank: 3,
@@ -59,13 +77,17 @@ describe("scenario display state", () => {
     });
   });
 
+  it("keeps unknown baseline-only context unavailable in change mode", () => {
+    const projected = projectScenarioProperties({ ...metrics, infrastructure_opportunity_score: null }, "change");
+    expect(projected.infrastructure_opportunity_score).toBeNull();
+  });
+
   it("projects signed change values for the comparison choropleth", () => {
     expect(projectScenarioProperties(metrics, "change")).toMatchObject({
       chargers_total: 2,
       charging_points_total: 6,
       fast_chargers_total: 1,
       ev_readiness_score: 12.5,
-      charging_supply_score: 12.5,
       charger_deficit_score: -12.5,
       investment_priority_score: -7.5,
       infrastructure_opportunity_score: 0,

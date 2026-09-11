@@ -135,9 +135,10 @@ export function renewableTechnologyLabel(technology: string | undefined): string
   return labels[technology ?? ""] ?? (technology?.trim() || "Renewable energy");
 }
 
-export function renewableAssetStyle(technology: string | undefined, capacityMw: number, zoom = 9) {
+export function renewableAssetStyle(technology: string | undefined, capacityMw: number | null, zoom = 9) {
   const scale = zoom <= 7 ? 0.72 : zoom === 8 ? 0.86 : 1;
-  const radius = Math.min(6.2, 2.3 + Math.log10(Math.max(capacityMw, 0) + 1) * 1.45) * scale;
+  const capacity = capacityMw ?? 0;
+  const radius = Math.min(6.2, 2.3 + Math.log10(Math.max(capacity, 0) + 1) * 1.45) * scale;
   return {
     pane: "renewableAssets",
     radius,
@@ -282,8 +283,8 @@ export function scoreColor(
   return "#eff3ff";
 }
 
-export function officialStationStyle(maxPointPowerKw: number, zoom = 9) {
-  const highPower = maxPointPowerKw >= 150;
+export function officialStationStyle(maxPointPowerKw: number | null, zoom = 9) {
+  const highPower = maxPointPowerKw !== null && maxPointPowerKw >= 150;
   const scale = zoom <= 7 ? 0.52 : zoom === 8 ? 0.72 : 1;
   return {
     pane: "stations",

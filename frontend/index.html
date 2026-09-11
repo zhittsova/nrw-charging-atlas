@@ -141,6 +141,7 @@
             <div>
               <span id="kpi-total-stations-label">Total NRW stations</span>
               <strong id="kpi-total-stations">-</strong>
+              <small id="kpi-total-stations-note"></small>
             </div>
           </article>
           <article class="kpi-card kpi-blue">
@@ -303,17 +304,5 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="./src/main.ts"></script>
-    <script src="./preview.js"></script>
-    <script>
-      setTimeout(function () {
-        var isViteDev = location.port === "5173";
-        var hasBuiltEntry = Array.prototype.some.call(document.scripts, function (script) {
-          return script.type === "module" && script.src.indexOf("/assets/") !== -1;
-        });
-        if (!isViteDev && !hasBuiltEntry && !window.__energyAppBooted && window.bootStaticPreview) {
-          window.bootStaticPreview();
-        }
-      }, 250);
-    </script>
   </body>
 </html>

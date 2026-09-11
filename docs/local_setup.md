@@ -1,7 +1,9 @@
 # Local setup
 
-Install Python 3.11 or newer, `uv`, Docker with Compose, and Git. Allocate at
-least 6 GB RAM to Docker.
+Install Python 3.11 or newer, `uv`, Docker with Compose, and Git. Allocate four
+CPUs and 4 GiB RAM to Docker for the local worker profile. On an 8 GiB Mac,
+allocating 7 GiB to Docker leaves too little RAM for macOS and the browser and
+can cause severe swapping and WFS timeouts.
 
 ```bash
 uv sync
@@ -48,7 +50,10 @@ The project CLI is the only supported Compose entry point. The root
 `docker-compose.yml` is retired and must not be used. `start` builds changed
 images; `rebuild` uses `--no-cache` and recreates containers without removing
 named volumes. Before startup it reports Docker memory and disk use, and stops
-if Docker has less than 6 GiB RAM. Local service ports bind only to loopback.
+if Docker reports less than 3.5 GiB usable RAM (allowing guest overhead in a
+4 GiB VM) or fewer than four CPUs. The local override bounds uWSGI to one-two
+workers, normal Celery tasks to one-two workers, and harvesting to zero-one
+workers. Both task queues remain available. Local service ports bind only to loopback.
 
 Run the Python and frontend checks listed in the root README before changing
 the project.
