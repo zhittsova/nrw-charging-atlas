@@ -20,6 +20,8 @@ class DatabaseInitializationTest(unittest.TestCase):
         self.assertIn("pg_roles", sql)
         self.assertIn("pg_database", sql)
         self.assertIn(":'owner_password'", sql)
+        self.assertIn("ALTER ROLE %I IN DATABASE %I SET jit = off", sql)
+        self.assertIn(":'publish_user'", sql)
         self.assertNotIn("example-secret", sql)
 
     def test_grants_keep_publish_read_only_and_scenario_narrowly_writable(self) -> None:

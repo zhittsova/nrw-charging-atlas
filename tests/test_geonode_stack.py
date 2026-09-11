@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -55,7 +56,7 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         self.assertIn("MEMCACHED_OPTIONS=", patched)
         self.assertIn("MEMCACHED_LOCATION=memcached:11211", patched)
         self.assertIn(
-            "GEOSERVER_JAVA_OPTS=-Xms512m -Xmx1G -Dcustom.geoserver.flag=keep-me",
+            "GEOSERVER_JAVA_OPTS=-Xms512m -Xmx1G -Dcustom.geoserver.flag=keep-me -XX:TieredStopAtLevel=1",
             patched,
         )
         self.assertIn(
@@ -63,6 +64,13 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
             patched,
         )
         self.assertIn("127.0.0.1", patched)
+
+    def test_patch_env_keeps_an_explicit_geoserver_compiler_level(self) -> None:
+        module = load_module()
+        source = "GEOSERVER_JAVA_OPTS=-Xms4G -Xmx4G -XX:TieredStopAtLevel=2\n"
+        patched = module.patch_env_text(source)
+        self.assertIn("-XX:TieredStopAtLevel=2", patched)
+        self.assertNotIn("-XX:TieredStopAtLevel=1", patched)
 
     def test_patch_env_preserves_configured_database_name(self) -> None:
         module = load_module()
@@ -324,6 +332,33 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         self.assertIn('"127.0.0.1:${HTTP_PORT}:80"', override)
         self.assertIn('"127.0.0.1:8080:8080"', override)
 
+    def test_local_override_extends_the_geoserver_health_deadline(self) -> None:
+        """Upstream's ~3 minute deadline fails a healthy stack mid-deployment.
+
+        GeoServer's webapp deployment routinely runs for several minutes before its
+        Spring context starts, so the upstream timings report a correct stack as
+        unhealthy. That in turn fails `frontend`'s `service_healthy` dependency and
+        aborts `geonode_stack start`. Only the timings are overridden here; the
+        upstream probe itself must survive the merge.
+        """
+        upstream = (ROOT / "geonode" / "docker-compose.yml").read_text()
+        override = (
+            ROOT / "config" / "geonode" / "docker-compose.nrw-project.yml"
+        ).read_text()
+
+        self.assertIn("start_period: 60s", upstream)
+        block = re.search(
+            r"^    healthcheck:\n((?:^      .+\n)+)", override, re.MULTILINE
+        )
+        self.assertIsNotNone(block, "the project override must declare a healthcheck")
+        assert block is not None
+        keys = {line.split(":", 1)[0].strip() for line in block.group(1).splitlines()}
+
+        self.assertEqual(keys, {"start_period", "interval", "retries"})
+        self.assertIn("start_period: 600s", block.group(1))
+        self.assertIn("interval: 30s", block.group(1))
+        self.assertIn("retries: 3", block.group(1))
+
     def test_init_first_run_prints_only_ready_message(self) -> None:
         module = load_module()
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -436,15 +471,16 @@ class GeoNodeLifecycleTest(unittest.TestCase):
     def test_resource_report_reads_memory_and_disk_without_environment(self, run: Mock) -> None:
         module = load_module()
         run.side_effect = [
-            subprocess.CompletedProcess([], 0, stdout='{"MemTotal": 8589934592}'),
+            subprocess.CompletedProcess([], 0, stdout='{"MemTotal": 8589934592, "NCPU": 6}'),
             subprocess.CompletedProcess(
                 [], 0, stdout='{"Type":"Images","Size":"1GB","Reclaimable":"500MB"}\n'
             ),
         ]
 
-        memory, disk, host_free = module.docker_resource_report()
+        memory, cpus, disk, host_free = module.docker_resource_report()
 
         self.assertEqual(memory, 8589934592)
+        self.assertEqual(cpus, 6)
         self.assertEqual(disk[0]["Type"], "Images")
         self.assertIsInstance(host_free, int)
         self.assertEqual(
@@ -457,21 +493,63 @@ class GeoNodeLifecycleTest(unittest.TestCase):
 
     def test_resource_gate_rejects_insufficient_memory(self) -> None:
         module = load_module()
-        with patch.object(module, "docker_resource_report", return_value=(2 * 1024**3, [], 0)):
-            with self.assertRaisesRegex(RuntimeError, "at least 6.0 GiB"):
+        with patch.object(module, "docker_resource_report", return_value=(2 * 1024**3, 8, [], 0)):
+            with self.assertRaisesRegex(RuntimeError, "at least 3.5 GiB usable"):
                 module.assert_docker_resources()
+
+    def test_resource_gate_accepts_four_gib_vm_after_guest_overhead(self) -> None:
+        module = load_module()
+        with (
+            patch.object(module, "docker_resource_report",
+                         return_value=(3840 * 1024**2, 4, [], 5 * 1024**3)),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            module.assert_docker_resources()
+
+    def test_resource_gate_rejects_insufficient_cpus(self) -> None:
+        """Two CPUs starve GeoServer's single-threaded deployment past every health deadline."""
+        module = load_module()
+        with patch.object(
+            module, "docker_resource_report", return_value=(8 * 1024**3, 2, [], 5 * 1024**3)
+        ):
+            with self.assertRaisesRegex(RuntimeError, r"2 CPU\(s\); at least 4 are required"):
+                module.assert_docker_resources()
+
+    def test_resource_gate_accepts_the_minimum_cpu_allocation(self) -> None:
+        module = load_module()
+        with (
+            patch.object(
+                module,
+                "docker_resource_report",
+                return_value=(8 * 1024**3, module.MINIMUM_DOCKER_CPUS, [], 5 * 1024**3),
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            module.assert_docker_resources()
+
+    def test_resource_report_rejects_a_missing_cpu_count(self) -> None:
+        module = load_module()
+        with patch("subprocess.run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout='{"MemTotal": 8589934592}'),
+            ]
+            with self.assertRaisesRegex(RuntimeError, "did not report its available CPUs"):
+                module.docker_resource_report()
 
     def test_resource_diagnostics_distinguish_host_free_space_from_docker_capacity(self) -> None:
         module = load_module()
         output = io.StringIO()
         with (
-            patch.object(module, "docker_resource_report", return_value=(8 * 1024**3, [], 5 * 1024**3)),
+            patch.object(
+                module, "docker_resource_report", return_value=(8 * 1024**3, 8, [], 5 * 1024**3)
+            ),
             contextlib.redirect_stdout(output),
         ):
             module.assert_docker_resources()
 
         self.assertIn("Host storage available", output.getvalue())
         self.assertIn("Docker storage capacity: unknown", output.getvalue())
+        self.assertIn("Docker CPUs: 8", output.getvalue())
 
     @patch("subprocess.run")
     def test_stop_never_removes_volumes(self, run: Mock) -> None:

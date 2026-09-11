@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createScenarioClient } from "./scenarioClient";
+import { createScenarioClient, SCENARIO_METRIC_FIELDS } from "./scenarioClient";
 
 
 const config = {
@@ -15,6 +15,12 @@ const config = {
 };
 
 describe("scenario WFS client", () => {
+  const scenarioMetric = {
+    type: "Feature",
+    properties: Object.fromEntries(SCENARIO_METRIC_FIELDS.map((field) => [field, field === "nuts_code" ? "DEA01" : null])),
+    geometry: { type: "Point", coordinates: [7, 51] }
+  };
+
   it("loads proposed chargers as GeoJSON without browser caching", async () => {
     const responseBody = { type: "FeatureCollection", features: [] };
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(responseBody), {
@@ -28,12 +34,13 @@ describe("scenario WFS client", () => {
     expect(url).toContain("request=GetFeature");
     expect(url).toContain("typeNames=nrw%3Aproposed_chargers");
     expect(options).toMatchObject({ cache: "no-store", credentials: "same-origin" });
+    expect(options.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("loads the scenario district metrics layer", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       type: "FeatureCollection",
-      features: [{ type: "Feature", properties: { nuts_code: "DEA01" }, geometry: null }]
+      features: [scenarioMetric]
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const client = createScenarioClient(config, fetcher);
 
@@ -41,6 +48,32 @@ describe("scenario WFS client", () => {
 
     expect(result.features).toHaveLength(1);
     expect(fetcher.mock.calls[0][0]).toContain("typeNames=nrw%3Anrw_ev_scenario_metrics");
+  });
+
+  it("rejects empty scenario metrics while allowing empty proposals", async () => {
+    const emptyMetrics = vi.fn().mockResolvedValue(new Response(JSON.stringify({ type: "FeatureCollection", features: [] }), {
+      status: 200, headers: { "Content-Type": "application/json" }
+    }));
+    await expect(createScenarioClient(config, emptyMetrics).loadScenarioMetrics()).rejects.toThrow("incomplete GeoJSON");
+
+    const emptyProposals = vi.fn().mockResolvedValue(new Response(JSON.stringify({ type: "FeatureCollection", features: [] }), {
+      status: 200, headers: { "Content-Type": "application/json" }
+    }));
+    await expect(createScenarioClient(config, emptyProposals).loadProposedChargers()).resolves.toMatchObject({ features: [] });
+  });
+
+  it("keeps the scenario request timeout active until a streaming body completes", async () => {
+    const fetcher = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal!;
+      return Promise.resolve(new Response(new ReadableStream({
+        start(controller) {
+          signal.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")));
+        }
+      }), { headers: { "Content-Type": "application/json" } }));
+    });
+    const client = createScenarioClient({ ...config, timeoutMs: 20 }, fetcher);
+    await expect(client.loadScenarioMetrics()).rejects.toThrow("timed out after 20ms");
+    expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
   });
 
   it("creates a proposed charger and returns its database UUID", async () => {

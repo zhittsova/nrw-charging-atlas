@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import html from "../index.html?raw";
+import nginx from "../nginx.conf?raw";
 import mainSource from "./main.ts?raw";
 
 
@@ -25,11 +26,49 @@ describe("dashboard information architecture", () => {
     expect(html).toContain("Add proposed station");
   });
 
+  it("ships no direct-HTML preview or synthetic fallback path", () => {
+    expect(html).not.toContain("preview.js");
+    expect(html).not.toContain("bootStaticPreview");
+    expect(mainSource).not.toContain("nrw-preview-");
+    expect(mainSource).not.toContain("chargingSupplyScore");
+    expect(mainSource).not.toContain("priorityTier");
+  });
+
+  it("uses canonical WFS layers and keeps scenario failures gated", () => {
+    for (const layer of [
+      "nrw:nrw_ev_baseline_metrics",
+      "nrw:nrw_chargers",
+      "nrw:nrw_ev_scenario_metrics",
+      "nrw:nrw_renewable_potential",
+      "nrw:nrw_regional_roads",
+      "nrw:nrw_autobahns"
+    ]) expect(mainSource).toContain(layer);
+    expect(mainSource).toContain('srsName: "EPSG:4326"');
+    expect(mainSource).toContain("setScenarioAvailability");
+    expect(mainSource).toContain("not ranked");
+    expect(mainSource).not.toContain("geonode:nrw_");
+  });
+
   it("provides local fallbacks for both road overlays", () => {
     expect(mainSource).toContain("data/nrw_autobahns_sample.geojson");
     expect(mainSource).toContain("data/nrw_regional_roads_sample.geojson");
     expect(mainSource).toContain('"Autobahns": autobahnLayer');
     expect(mainSource).toContain('"Federal and state roads": regionalRoadLayer');
+  });
+
+  it("serves canonical GeoJSON fallbacks with a JSON media type", () => {
+    expect(nginx).toContain("include /etc/nginx/mime.types");
+    expect(nginx).toContain("application/geo+json geojson");
+  });
+
+  it("re-resolves the GeoServer upstream instead of caching it at startup", () => {
+    // A literal host in proxy_pass is resolved once, at boot: nginx then refuses to
+    // start while GeoServer is absent, and answers 502 from a stale address after
+    // GeoServer is recreated on a new IP.
+    expect(nginx).toContain("resolver 127.0.0.11");
+    expect(nginx).toContain("set $geoserver_upstream http://geoserver:8080;");
+    expect(nginx).toContain("proxy_pass $geoserver_upstream$request_uri;");
+    expect(nginx).not.toContain("proxy_pass http://geoserver:8080/geoserver/;");
   });
 
   it("provides a renewable-energy overlay with a local fallback", () => {
@@ -73,6 +112,7 @@ describe("dashboard information architecture", () => {
     expect(mainSource).toContain("Largest charging-gap change");
     expect(mainSource).toContain("This is a change view, not a site recommendation.");
     expect(mainSource).toContain("Scenario priority rank");
+    expect(html).toContain('id="kpi-total-stations-note"');
   });
 
   it("lists project data sources as text", () => {

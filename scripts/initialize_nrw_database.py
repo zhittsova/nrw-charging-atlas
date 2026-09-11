@@ -23,6 +23,10 @@ SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'scenario_user', :'scenar
 SELECT format('CREATE DATABASE %I OWNER %I', :'database_name', :'owner_user')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'database_name')
 \gexec
+-- GeoServer reads the statewide scenario view through this role.  PostgreSQL
+-- JIT setup alone can consume most of the bounded UI request budget; keep the
+-- setting scoped to the read-only application role and project database.
+SELECT format('ALTER ROLE %I IN DATABASE %I SET jit = off', :'publish_user', :'database_name') \gexec
 """
 
 

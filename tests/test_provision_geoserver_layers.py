@@ -190,6 +190,23 @@ def config() -> object:
 
 
 class GeoServerProvisioningTest(unittest.TestCase):
+    def test_only_scenario_metrics_skip_count_on_create_and_reconcile(self) -> None:
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                session = RecordingSession(existing=existing)
+                for layer in ("nrw_ev_scenario_metrics", "nrw_chargers"):
+                    module.ensure_feature_type(
+                        session, config(), store=module.PUBLISH_STORE,
+                        layer=layer, title=layer,
+                    )
+                writes = [kwargs["json"]["featureType"]
+                          for method, _, kwargs in session.calls
+                          if method in {"POST", "PUT"}]
+                self.assertEqual(len(writes), 2 if existing else 4)
+                for feature_type in writes:
+                    self.assertEqual(feature_type["skipNumberMatched"],
+                                     feature_type["name"] == "nrw_ev_scenario_metrics")
+
     def test_database_default_honors_environment_configuration(self) -> None:
         values = {
             "GEOSERVER_ADMIN_USER": "admin",

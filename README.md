@@ -16,7 +16,9 @@ uv sync
 uv run python -m scripts.project_stack bootstrap
 ```
 
-Docker needs at least 6 GB RAM. `bootstrap --skip-download` reuses a complete
+Use four Docker CPUs and a 4 GiB memory allocation for the bounded local worker
+pools. Leave RAM for macOS and the browser; allocating nearly all host memory
+to Docker can make even small WFS reads time out. `bootstrap --skip-download` reuses a complete
 local `data/raw` directory.
 
 The supported Docker entry point is the project CLI above; do not run the
