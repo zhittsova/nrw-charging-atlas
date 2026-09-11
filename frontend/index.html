@@ -196,7 +196,7 @@
                 </div>
                 <h3>3. Test a proposed station</h3><p class="control-help">Choose “Add proposed station”, then click a location on the map. Compare the current network with your proposals.</p><div class="scenario-actions">
                   <button id="scenario-add-button" class="primary-action" type="button">Add proposed station</button>
-                  <button id="scenario-reset-button" class="secondary-action" type="button">Clear proposals</button>
+                  <button id="scenario-reset-button" class="secondary-action" type="button">Clear this browser's proposals</button>
                 </div>
                 <p id="scenario-status" class="scenario-status" aria-live="polite">Scenario data is loading…</p>
               </div>
@@ -289,8 +289,12 @@
               <input id="scenario-points" name="chargingPoints" type="number" min="1" max="100" step="1" value="4" required>
             </label>
             <label class="form-field">
-              <span>Power per station (kW)</span>
+              <span>Total station power (kW)</span>
               <input id="scenario-power" name="powerKw" type="number" min="1" max="1000" step="0.1" value="150" required>
+            </label>
+            <label class="form-field">
+              <span>Maximum point power (kW)</span>
+              <input id="scenario-max-point-power" name="maxPointPowerKw" type="number" min="1" max="1000" step="0.1" value="150" required>
             </label>
           </div>
           <p id="scenario-form-error" class="form-error" aria-live="polite"></p>

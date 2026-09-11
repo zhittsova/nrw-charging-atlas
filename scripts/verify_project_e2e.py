@@ -28,7 +28,7 @@ REQUIRED_WFS_PROPERTIES = {
     "nrw_ev_baseline_metrics": {"nuts_code", "district_name", "ev_readiness_score"},
     "nrw_chargers": {"source_id", "operator", "power_kw", "max_point_power_kw"},
     "nrw_ev_scenario_metrics": {"nuts_code", "scenario_chargers_total"},
-    "proposed_chargers": {"id", "name", "charging_points", "power_kw", "geom"},
+    "proposed_chargers": {"id", "name", "charging_points", "power_kw", "max_point_power_kw", "request_id", "geom"},
     "nrw_autobahns": {"source_id", "highway"},
     "nrw_regional_roads": {"source_id", "road_class", "traffic_total"},
     "nrw_renewable_potential": {"source_id", "technology", "status", "asset_type"},
@@ -49,7 +49,7 @@ WFS_SAMPLE_BBOXES = {
 }
 
 
-def insert_xml(name: str) -> str:
+def insert_xml(name: str, request_id: str) -> str:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <wfs:Transaction service="WFS" version="1.0.0"
   xmlns:wfs="http://www.opengis.net/wfs"
@@ -61,6 +61,7 @@ def insert_xml(name: str) -> str:
       <nrw:charging_points>{CHARGING_POINTS}</nrw:charging_points>
       <nrw:power_kw>{POWER_KW}</nrw:power_kw>
       <nrw:max_point_power_kw>{MAX_POINT_POWER_KW}</nrw:max_point_power_kw>
+      <nrw:request_id>{escape(request_id)}</nrw:request_id>
       <nrw:geom><gml:Point srsName="EPSG:4326"><gml:coordinates decimal="." cs="," ts=" ">{LONGITUDE},{LATITUDE}</gml:coordinates></gml:Point></nrw:geom>
     </nrw:proposed_chargers>
   </wfs:Insert>
@@ -258,16 +259,17 @@ def verify(
     wfs_url = f"{frontend_url.rstrip('/')}/geoserver/ows"
     verify_wfs_contract(session, wfs_url)
     before = district_metrics(session, wfs_url)
-    name = f"E2E verifier {uuid4()}"
+    request_id = str(uuid4())
+    name = f"E2E verifier {request_id}"
     station_id: str | None = None
     try:
-        station_id = inserted_station_id(post_transaction(session, wfs_url, insert_xml(name)))
+        station_id = inserted_station_id(post_transaction(session, wfs_url, insert_xml(name, request_id)))
         queried_id = find_station_id(
             get_features(
                 session,
                 wfs_url,
                 "proposed_chargers",
-                cql_filter=f"name='{name}'",
+                cql_filter=f"request_id='{request_id}'",
                 count=1,
             ),
             name,

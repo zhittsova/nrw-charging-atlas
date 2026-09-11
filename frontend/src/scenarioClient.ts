@@ -1,5 +1,4 @@
 import {
-  buildDeleteAllTransaction,
   buildDeleteTransaction,
   buildInsertTransaction,
   parseTransactionResponse,
@@ -49,6 +48,21 @@ export type ScenarioClientConfig = {
   timeoutMs?: number;
 };
 
+export type ScenarioCreateResult = {
+  id: string;
+  reconciled: boolean;
+};
+
+export class UncertainScenarioInsertError extends Error {
+  readonly requestId: string;
+
+  constructor(requestId: string, cause: string) {
+    super(`We could not confirm whether the station was saved. Restore the service, then retry; this form will use the same safe request identifier. ${cause}`);
+    this.name = "UncertainScenarioInsertError";
+    this.requestId = requestId;
+  }
+}
+
 function getFeatureUrl(wfsUrl: string, typeName: string): string {
   const query = new URLSearchParams({
     service: "WFS",
@@ -57,6 +71,19 @@ function getFeatureUrl(wfsUrl: string, typeName: string): string {
     typeNames: typeName,
     outputFormat: "application/json",
     srsName: "EPSG:4326"
+  });
+  return `${wfsUrl}?${query.toString()}`;
+}
+
+function getFilteredFeatureUrl(wfsUrl: string, typeName: string, property: string, value: string): string {
+  const query = new URLSearchParams({
+    service: "WFS",
+    version: "2.0.0",
+    request: "GetFeature",
+    typeNames: typeName,
+    outputFormat: "application/json",
+    srsName: "EPSG:4326",
+    CQL_FILTER: `${property}='${value}'`
   });
   return `${wfsUrl}?${query.toString()}`;
 }
@@ -88,7 +115,7 @@ async function loadGeoJson(
   });
 }
 
-async function transact(fetcher: FetchLike, wfsUrl: string, xml: string, timeoutMs: number): Promise<string | undefined> {
+async function transact(fetcher: FetchLike, wfsUrl: string, xml: string, timeoutMs: number) {
   return request(fetcher, wfsUrl, {
     method: "POST",
     headers: { "Content-Type": "text/xml; charset=UTF-8" },
@@ -110,8 +137,29 @@ async function transact(fetcher: FetchLike, wfsUrl: string, xml: string, timeout
     if (!result.ok) {
       throw new Error(`GeoServer rejected the transaction: ${result.error}`);
     }
-    return result.insertedFeatureId;
+    return result;
   });
+}
+
+function uuidFromFeatureId(featureId: string | undefined): string | undefined {
+  const match = featureId?.match(/(?:^|\.)([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i);
+  return match?.[1];
+}
+
+function mutationCountError(action: "insert" | "delete", count: number | undefined, expected: number): Error | null {
+  if (count !== undefined && count !== expected) {
+    return new Error(`GeoServer reported ${count} ${action === "insert" ? "inserted" : "deleted"} stations; expected exactly ${expected}`);
+  }
+  return null;
+}
+
+function isUncertainInsertFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return true;
+  // An explicit 4xx denial or validation error is a definite non-commit. A
+  // timeout, network failure, malformed success response, or 5xx can occur
+  // after the server committed the row and must be reconciled by request_id.
+  return !/GeoServer transaction failed \(4(?:00|01|03|04|09|22)\)/.test(error.message)
+    && !/GeoServer rejected the transaction/.test(error.message);
 }
 
 async function request<T>(
@@ -136,11 +184,6 @@ async function request<T>(
   }
 }
 
-function uuidFromFeatureId(featureId: string | undefined): string | undefined {
-  const match = featureId?.match(/(?:^|\.)([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i);
-  return match?.[1];
-}
-
 export function createScenarioClient(
   config: ScenarioClientConfig,
   fetcher: FetchLike = fetch
@@ -154,22 +197,77 @@ export function createScenarioClient(
       requireFeatures: true,
       timeoutMs
     }),
-    async create(input: ProposedChargerInput): Promise<string> {
-      const featureId = await transact(
-        fetcher,
-        config.wfsUrl,
-        buildInsertTransaction(input, config.featureType),
-        timeoutMs
-      );
-      const id = uuidFromFeatureId(featureId);
-      if (!id) throw new Error("GeoServer inserted the station but did not return its UUID");
-      return id;
+    async findByRequestId(requestId: string): Promise<GeoJsonFeatureCollection> {
+      return request(fetcher, getFilteredFeatureUrl(
+        config.wfsUrl, config.proposedLayer, "request_id", requestId
+      ), { cache: "no-store", credentials: "same-origin" }, timeoutMs, async (response) => {
+        if (!response.ok) throw new Error(`GeoServer request-id lookup failed (${response.status})`);
+        const body = await response.json() as GeoJsonFeatureCollection;
+        if (body.type !== "FeatureCollection" || !Array.isArray(body.features)) {
+          throw new Error("GeoServer returned invalid request-id lookup data");
+        }
+        return body;
+      });
+    },
+    async create(input: ProposedChargerInput, options: { reconcile?: boolean } = {}): Promise<ScenarioCreateResult> {
+      const xml = buildInsertTransaction(input, config.featureType);
+      const findExisting = async (): Promise<ScenarioCreateResult | null> => {
+        const response = await this.findByRequestId(input.requestId);
+        const matches = response.features ?? [];
+        if (matches.length > 1) throw new Error("Multiple proposals share this request identifier; do not retry");
+        if (!matches.length) return null;
+        const id = uuidFromFeatureId(String(matches[0].id ?? matches[0].properties?.id ?? ""));
+        if (!id) throw new Error("The reconciled proposal has no UUID");
+        return { id, reconciled: true };
+      };
+
+      if (options.reconcile) {
+        const prior = await findExisting();
+        if (prior) return prior;
+      }
+      try {
+        const result = await transact(
+          fetcher,
+          config.wfsUrl,
+          xml,
+          timeoutMs
+        );
+        const countError = mutationCountError("insert", result.totalInserted ?? result.insertedFeatureIds?.length, 1);
+        if (countError) throw countError;
+        const id = uuidFromFeatureId(result.insertedFeatureId);
+        if (id) return { id, reconciled: false };
+        const reconciled = await findExisting();
+        if (reconciled) return reconciled;
+        throw new UncertainScenarioInsertError(input.requestId, "GeoServer did not return an inserted UUID.");
+      } catch (error) {
+        if (!isUncertainInsertFailure(error)) throw error;
+        try {
+          const reconciled = await findExisting();
+          if (reconciled) return reconciled;
+        } catch (lookupError) {
+          const detail = lookupError instanceof Error ? ` Reconciliation lookup failed: ${lookupError.message}` : "";
+          throw new UncertainScenarioInsertError(input.requestId, detail);
+        }
+        throw new UncertainScenarioInsertError(input.requestId, error instanceof Error ? error.message : "The write response was unavailable.");
+      }
     },
     async remove(id: string): Promise<void> {
-      await transact(fetcher, config.wfsUrl, buildDeleteTransaction(id, config.featureType), timeoutMs);
+      const result = await transact(fetcher, config.wfsUrl, buildDeleteTransaction(id, config.featureType), timeoutMs);
+      const countError = mutationCountError("delete", result.totalDeleted, 1);
+      if (countError) throw countError;
+      const remaining = await request(fetcher, getFilteredFeatureUrl(
+        config.wfsUrl, config.proposedLayer, "id", id
+      ), { cache: "no-store", credentials: "same-origin" }, timeoutMs, async (response) => {
+        if (!response.ok) throw new Error(`GeoServer delete confirmation failed (${response.status})`);
+        return await response.json() as GeoJsonFeatureCollection;
+      });
+      if (remaining.features.length) throw new Error("GeoServer did not confirm deletion of the proposed station");
     },
-    async reset(): Promise<void> {
-      await transact(fetcher, config.wfsUrl, buildDeleteAllTransaction(config.featureType), timeoutMs);
+    async reset(ids: readonly string[]): Promise<void> {
+      // Reset is intentionally a sequence of UUID-filtered deletes.  A shared
+      // local scenario can contain proposals from other browser sessions, and
+      // those must not be removed by this browser's cleanup action.
+      for (const id of ids) await this.remove(id);
     }
   };
 }

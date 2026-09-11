@@ -24,6 +24,9 @@ describe("dashboard information architecture", () => {
     expect(html).toContain('id="scenario-add-button"');
     expect(html).toContain('id="map-add-station"');
     expect(html).toContain("Add proposed station");
+    expect(html).toContain('id="scenario-max-point-power"');
+    expect(html).toContain("Maximum point power");
+    expect(html).toContain("Clear this browser's proposals");
   });
 
   it("ships no direct-HTML preview or synthetic fallback path", () => {
