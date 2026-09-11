@@ -21,6 +21,8 @@ describe("WFS-T transaction builders", () => {
         name: "Professor's <station> & demo",
         chargingPoints: 4,
         powerKw: 150,
+        maxPointPowerKw: 75,
+        requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3",
         longitude: 7.123456,
         latitude: 51.654321
       },
@@ -33,23 +35,36 @@ describe("WFS-T transaction builders", () => {
     expect(xml).toContain("Professor&apos;s &lt;station&gt; &amp; demo");
     expect(xml).toContain("<nrw:charging_points>4</nrw:charging_points>");
     expect(xml).toContain("<nrw:power_kw>150</nrw:power_kw>");
+    expect(xml).toContain("<nrw:max_point_power_kw>75</nrw:max_point_power_kw>");
+    expect(xml).toContain("<nrw:request_id>f6e942dc-faf7-4db6-b332-928ad2cb86e3</nrw:request_id>");
     expect(xml).toContain("<gml:coordinates>7.123456,51.654321</gml:coordinates>");
     expect(xml).not.toContain("Professor's <station>");
   });
 
   it("rejects invalid insert values before sending XML", () => {
     expect(() => buildInsertTransaction({
-      name: " ", chargingPoints: 2, powerKw: 22, longitude: 7, latitude: 51
+      name: " ", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22, requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7, latitude: 51
     }, featureType)).toThrow("name");
     expect(() => buildInsertTransaction({
-      name: "Bad points", chargingPoints: 0, powerKw: 22, longitude: 7, latitude: 51
+      name: "Bad points", chargingPoints: 0, powerKw: 22, maxPointPowerKw: 22, requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7, latitude: 51
     }, featureType)).toThrow("charging points");
     expect(() => buildInsertTransaction({
-      name: "Bad power", chargingPoints: 2, powerKw: 1001, longitude: 7, latitude: 51
+      name: "Bad power", chargingPoints: 2, powerKw: 1001, maxPointPowerKw: 22, requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7, latitude: 51
     }, featureType)).toThrow("power");
     expect(() => buildInsertTransaction({
-      name: "Bad coordinate", chargingPoints: 2, powerKw: 22, longitude: 181, latitude: 51
+      name: "Bad coordinate", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22, requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 181, latitude: 51
     }, featureType)).toThrow("coordinates");
+  });
+
+  it("rejects a maximum above total power and a non-UUID request identifier", () => {
+    expect(() => buildInsertTransaction({
+      name: "Bad maximum", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 50,
+      requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7, latitude: 51
+    }, featureType)).toThrow("maximum point power");
+    expect(() => buildInsertTransaction({
+      name: "Bad request", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId: "not-a-uuid", longitude: 7, latitude: 51
+    }, featureType)).toThrow("request identifier");
   });
 
   it("builds a UUID-filtered delete and rejects XML injection in ids", () => {

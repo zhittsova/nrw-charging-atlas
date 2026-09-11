@@ -102,7 +102,7 @@ class LegacyProposedChargerMigrationDatabaseTest(unittest.TestCase):
         result = self.psql(
             """
             SELECT id, name, charging_points, power_kw,
-                   max_point_power_kw IS NULL, nuts_code, status
+                   max_point_power_kw IS NULL, request_id IS NULL, nuts_code, status
             FROM scenario.proposed_chargers;
             """,
             check=False,
@@ -111,19 +111,19 @@ class LegacyProposedChargerMigrationDatabaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            f"{self.legacy_id}|Legacy station|2|44|t|DEA01|proposed",
+            f"{self.legacy_id}|Legacy station|2|44|t|t|DEA01|proposed",
         )
 
     def test_migration_is_idempotent_without_backfilling_legacy_maximum(self) -> None:
         self.psql_file(ROOT / "db/nrw_schema.sql")
         result = self.psql(
-            "SELECT count(*), bool_and(max_point_power_kw IS NULL), min(power_kw) "
+            "SELECT count(*), bool_and(max_point_power_kw IS NULL), bool_and(request_id IS NULL), min(power_kw) "
             "FROM scenario.proposed_chargers;",
             check=False,
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "1|t|44")
+        self.assertEqual(result.stdout.strip(), "1|t|t|44")
 
     def test_migration_converts_generated_projection_without_losing_proposal(self) -> None:
         result = self.psql(
@@ -223,13 +223,13 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         result = self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, max_point_power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, request_id, geom
             ) VALUES (
-                '  Demo Station  ', 4, 150, 75,
+                '  Demo Station  ', 4, 150, 75, '123e4567-e89b-12d3-a456-426614174000',
                 ST_SetSRID(ST_Point(6.5, 50.5), 4326)
             )
             RETURNING name, charging_points, power_kw, max_point_power_kw, nuts_code,
-                      status, id IS NOT NULL, created_at IS NOT NULL, ST_SRID(geom_25832);
+                      status, id IS NOT NULL, request_id IS NOT NULL, created_at IS NOT NULL, ST_SRID(geom_25832);
             """,
             check=False,
         )
@@ -237,8 +237,37 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            "Demo Station|4|150|75|DEA01|proposed|t|t|25832",
+            "Demo Station|4|150|75|DEA01|proposed|t|t|t|25832",
         )
+
+    def test_request_identifier_is_persisted_and_unique_for_new_proposals(self) -> None:
+        request_id = "123e4567-e89b-12d3-a456-426614174000"
+        self.psql(
+            f"""
+            INSERT INTO scenario.proposed_chargers (
+                name, charging_points, power_kw, max_point_power_kw, request_id, geom
+            ) VALUES ('First request', 2, 22, 22, '{request_id}', ST_SetSRID(ST_Point(6.5, 50.5), 4326));
+            """
+        )
+        generated = self.psql(
+            """
+            INSERT INTO scenario.proposed_chargers (
+                name, charging_points, power_kw, max_point_power_kw, geom
+            ) VALUES ('Generated request', 2, 22, 22, ST_SetSRID(ST_Point(6.5, 50.5), 4326))
+            RETURNING request_id IS NOT NULL;
+            """
+        )
+        self.assertEqual(generated.stdout.strip(), "t")
+        duplicate = self.psql(
+            f"""
+            INSERT INTO scenario.proposed_chargers (
+                name, charging_points, power_kw, max_point_power_kw, request_id, geom
+            ) VALUES ('Duplicate request', 2, 22, 22, '{request_id}', ST_SetSRID(ST_Point(6.5, 50.5), 4326));
+            """,
+            check=False,
+        )
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("proposed_chargers_request_id_uq", duplicate.stderr)
 
     def test_insert_outside_nrw_is_rejected_without_persisting_a_row(self) -> None:
         result = self.psql(

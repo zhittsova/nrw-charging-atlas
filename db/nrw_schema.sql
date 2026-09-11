@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
     -- Nullable for proposals that existed before the maximum-point-power
     -- contract.  The trigger below requires it for new inserts.
     max_point_power_kw numeric,
+    -- A browser-generated idempotency key.  It is deliberately nullable for
+    -- proposals saved before WFS-T clients could safely reconcile a timeout.
+    request_id uuid DEFAULT gen_random_uuid(),
     nuts_code text NOT NULL,
     status text NOT NULL DEFAULT 'proposed',
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -103,6 +106,8 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
 );
 
 ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS max_point_power_kw numeric;
+ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS request_id uuid;
+ALTER TABLE scenario.proposed_chargers ALTER COLUMN request_id SET DEFAULT gen_random_uuid();
 -- GeoServer WFS-T writes every discovered geometry attribute.  A generated
 -- companion geometry is therefore not writable even when the client only
 -- supplies `geom`.  Keep the projected column for analytics, but maintain it
@@ -156,6 +161,11 @@ CREATE INDEX IF NOT EXISTS proposed_chargers_geom_25832_gix
     ON scenario.proposed_chargers USING gist (geom_25832);
 CREATE INDEX IF NOT EXISTS proposed_chargers_nuts_code_idx
     ON scenario.proposed_chargers (nuts_code);
+-- A legacy proposal has no request identifier.  New browser requests must be
+-- unique, which makes an uncertain WFS response safe to reconcile by lookup.
+CREATE UNIQUE INDEX IF NOT EXISTS proposed_chargers_request_id_uq
+    ON scenario.proposed_chargers (request_id)
+    WHERE request_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION scenario.validate_proposed_charger()
 RETURNS trigger

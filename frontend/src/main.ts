@@ -75,6 +75,7 @@ type StationProperties = {
   connectors?: number;
   status?: string;
   charger_type?: string;
+  request_id?: string;
   [key: string]: unknown;
 };
 
@@ -180,8 +181,19 @@ let proposedStations: FeatureCollection<StationProperties> = { type: "FeatureCol
 let selectedRegionId: string | null = null;
 let selectedLayer: L.Layer | null = null;
 let pendingLocation: L.LatLng | null = null;
+let pendingRequestId: string | null = null;
+let pendingNeedsReconciliation = false;
 let awaitingMapClick = false;
 let scenarioServiceAvailable = false;
+const OWNED_REQUEST_IDS_KEY = "nrw-proposed-charger-request-ids";
+const ownedRequestIds = new Set<string>((() => {
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(OWNED_REQUEST_IDS_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+})());
 const layerStates: Partial<Record<"districts" | "stations" | "renewables" | "regional roads" | "autobahns", LayerRead<unknown>>> = {};
 
 const map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: false }).setView(NRW_CENTER, 7);
@@ -367,15 +379,22 @@ const proposedStationLayer = L.geoJSON(undefined, {
       <p><strong>Power:</strong> ${formatNumber(numericValue(p, ["power_kw"]))} kW</p>
       <p><strong>Charging points:</strong> ${formatNumber(numericValue(p, ["charging_points"]))}</p>
     `;
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "popup-delete";
-    removeButton.textContent = "Remove from scenario";
-    removeButton.addEventListener("click", async () => {
-      const id = textValue(p, ["id"], "");
-      if (id) await removeScenarioStation(id);
-    });
-    popup.appendChild(removeButton);
+    const requestId = textValue(p, ["request_id"], "");
+    if (requestId && ownedRequestIds.has(requestId)) {
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "popup-delete";
+      removeButton.textContent = "Remove from scenario";
+      removeButton.addEventListener("click", async () => {
+        const id = textValue(p, ["id"], "");
+        if (id) await removeScenarioStation(id, requestId);
+      });
+      popup.appendChild(removeButton);
+    } else {
+      const unavailable = document.createElement("p");
+      unavailable.textContent = "Editing is unavailable because this browser did not create this saved proposal.";
+      popup.appendChild(unavailable);
+    }
     layer.bindPopup(popup);
   }
 }).addTo(map);
@@ -852,6 +871,36 @@ function proposedStationId(feature: Feature<StationProperties>): string {
   return featureId.includes(".") ? featureId.slice(featureId.lastIndexOf(".") + 1) : featureId;
 }
 
+function proposalRequestId(feature: Feature<StationProperties>): string | null {
+  const requestId = textValue(feature.properties, ["request_id"], "");
+  return requestId || null;
+}
+
+function persistOwnedRequestIds(): void {
+  try {
+    window.sessionStorage.setItem(OWNED_REQUEST_IDS_KEY, JSON.stringify([...ownedRequestIds]));
+  } catch {
+    // Browser storage is only a convenience for limiting reset/delete scope.
+    // A storage failure must never broaden a write to other proposals.
+  }
+}
+
+function rememberOwnedRequestId(requestId: string): void {
+  ownedRequestIds.add(requestId);
+  persistOwnedRequestIds();
+}
+
+function forgetOwnedRequestId(requestId: string | null): void {
+  if (!requestId) return;
+  ownedRequestIds.delete(requestId);
+  persistOwnedRequestIds();
+}
+
+function requestIdForNewProposal(): string {
+  if (!window.crypto?.randomUUID) throw new Error("This browser cannot create a safe proposal request identifier");
+  return window.crypto.randomUUID();
+}
+
 function renderProposedStations(): void {
   proposedStationLayer.clearLayers();
   proposedStationLayer.addData(proposedStations);
@@ -876,17 +925,26 @@ function renderProposedStations(): void {
     summary.className = "scenario-station-summary";
     summary.innerHTML = `<strong>${escapeHtml(textValue(p, ["name"], "Proposed station"))}</strong>`
       + `<span>${formatNumber(numericValue(p, ["charging_points"]))} points · `
-      + `${formatNumber(numericValue(p, ["power_kw"]))} kW</span>`;
+      + `${formatNumber(numericValue(p, ["power_kw"]))} kW total · `
+      + `${formatNumber(numericValue(p, ["max_point_power_kw"]))} kW max point</span>`;
     summary.addEventListener("click", () => {
       const point = feature.geometry as GeoJSON.Point;
       if (point?.type === "Point") map.setView([point.coordinates[1], point.coordinates[0]], 13);
     });
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "scenario-row-delete";
-    remove.textContent = "Remove";
-    remove.addEventListener("click", () => removeScenarioStation(proposedStationId(feature)));
-    row.append(summary, remove);
+    const requestId = proposalRequestId(feature);
+    if (requestId && ownedRequestIds.has(requestId)) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "scenario-row-delete";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeScenarioStation(proposedStationId(feature), requestId));
+      row.append(summary, remove);
+    } else {
+      const unavailable = document.createElement("span");
+      unavailable.className = "scenario-row-unavailable";
+      unavailable.textContent = "Saved proposal — editing unavailable in this browser";
+      row.append(summary, unavailable);
+    }
     list.appendChild(row);
   });
 }
@@ -908,11 +966,12 @@ async function refreshScenarioData(successMessage?: string): Promise<void> {
   setScenarioAvailability(true, successMessage ?? "Scenario is ready. Indicators update after every edit.");
 }
 
-async function removeScenarioStation(id: string): Promise<void> {
+async function removeScenarioStation(id: string, requestId: string): Promise<void> {
   if (!id) return;
   setScenarioStatus("Removing proposed station…");
   try {
     await scenarioClient.remove(id);
+    forgetOwnedRequestId(requestId);
     await refreshScenarioData("Station removed and district indicators recalculated.");
   } catch (error) {
     setScenarioStatus(error instanceof Error ? error.message : "Could not remove the station", true);
@@ -933,6 +992,8 @@ function closeScenarioDialog(): void {
   const modal = document.getElementById("scenario-modal") as HTMLElement | null;
   if (modal) modal.hidden = true;
   pendingLocation = null;
+  pendingRequestId = null;
+  pendingNeedsReconciliation = false;
   awaitingMapClick = false;
   map.getContainer().classList.remove("scenario-pick-mode");
   setText("scenario-form-error", "");
@@ -940,6 +1001,8 @@ function closeScenarioDialog(): void {
 
 function openScenarioDialog(location: L.LatLng): void {
   pendingLocation = location;
+  pendingRequestId = null;
+  pendingNeedsReconciliation = false;
   setText("scenario-location", `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`);
   const modal = document.getElementById("scenario-modal") as HTMLElement | null;
   if (modal) modal.hidden = false;
@@ -1053,16 +1116,22 @@ document.getElementById("scenario-modal-close")?.addEventListener("click", close
 document.getElementById("scenario-cancel")?.addEventListener("click", closeScenarioDialog);
 
 document.getElementById("scenario-reset-button")?.addEventListener("click", async () => {
-  if (!proposedStations.features.length) {
-    setScenarioStatus("The scenario is already empty.");
+  const owned = proposedStations.features.filter((feature) => {
+    const requestId = proposalRequestId(feature);
+    return requestId !== null && ownedRequestIds.has(requestId);
+  });
+  if (!owned.length) {
+    setScenarioStatus("No proposals created in this browser can be cleared. Other saved proposals are preserved.");
     return;
   }
-  if (!window.confirm("Remove all proposed charging stations and return to the baseline?")) return;
-  setScenarioStatus("Resetting scenario…");
+  if (!window.confirm("Remove this browser's proposed charging stations? Other saved proposals will remain.")) return;
+  setScenarioStatus("Removing this browser's proposed stations…");
   try {
-    await scenarioClient.reset();
+    const ids = owned.map(proposedStationId).filter(Boolean);
+    await scenarioClient.reset(ids);
+    owned.forEach((feature) => forgetOwnedRequestId(proposalRequestId(feature)));
     applyScenarioView("baseline");
-    await refreshScenarioData("Scenario reset. Baseline indicators restored.");
+    await refreshScenarioData("This browser's proposals were removed. Other saved proposals were preserved.");
   } catch (error) {
     setScenarioStatus(error instanceof Error ? error.message : "Could not reset the scenario", true);
   }
@@ -1076,21 +1145,37 @@ document.getElementById("scenario-form")?.addEventListener("submit", async (even
   const name = (document.getElementById("scenario-name") as HTMLInputElement).value;
   const chargingPoints = Number((document.getElementById("scenario-points") as HTMLInputElement).value);
   const powerKw = Number((document.getElementById("scenario-power") as HTMLInputElement).value);
+  const maxPointPowerKw = Number((document.getElementById("scenario-max-point-power") as HTMLInputElement).value);
   if (submit) submit.disabled = true;
   setText("scenario-form-error", "");
   try {
-    await scenarioClient.create({
+    pendingRequestId ??= requestIdForNewProposal();
+    const saved = await scenarioClient.create({
       name,
       chargingPoints,
       powerKw,
+      maxPointPowerKw,
+      requestId: pendingRequestId,
       longitude: pendingLocation.lng,
       latitude: pendingLocation.lat
-    });
-    closeScenarioDialog();
-    form.reset();
+    }, { reconcile: pendingNeedsReconciliation });
+    pendingNeedsReconciliation = true;
+    rememberOwnedRequestId(pendingRequestId);
+    setScenarioStatus(saved.reconciled
+      ? "Station was already saved and has been safely reconciled. Refreshing indicators…"
+      : "Station saved. Refreshing indicators…");
     applyScenarioView("scenario");
-    await refreshScenarioData("Station added and district indicators recalculated.");
+    try {
+      await refreshScenarioData("Station added and district indicators recalculated.");
+      closeScenarioDialog();
+      form.reset();
+    } catch (refreshError) {
+      const detail = refreshError instanceof Error ? refreshError.message : "the scenario data could not be refreshed";
+      setScenarioStatus(`Station saved; refresh pending: ${detail}. Retry “Add and recalculate” after recovery.`, true);
+      setText("scenario-form-error", "Station saved, but indicators could not refresh. Your form values are retained; retrying is safe.");
+    }
   } catch (error) {
+    if (error instanceof Error && error.name === "UncertainScenarioInsertError") pendingNeedsReconciliation = true;
     setText("scenario-form-error", error instanceof Error ? error.message : "Could not add the station");
   } finally {
     if (submit) submit.disabled = false;

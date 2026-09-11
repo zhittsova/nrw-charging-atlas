@@ -2,6 +2,8 @@ export type ProposedChargerInput = {
   name: string;
   chargingPoints: number;
   powerKw: number;
+  maxPointPowerKw: number;
+  requestId: string;
   longitude: number;
   latitude: number;
 };
@@ -17,6 +19,7 @@ export type WfsTransactionResult = {
   ok: boolean;
   error?: string;
   insertedFeatureId?: string;
+  insertedFeatureIds?: string[];
   totalInserted?: number;
   totalUpdated?: number;
   totalDeleted?: number;
@@ -75,6 +78,14 @@ function validateInput(input: ProposedChargerInput): ProposedChargerInput {
   if (!Number.isFinite(input.powerKw) || input.powerKw < 1 || input.powerKw > 1000) {
     throw new Error("Proposed charger power must be from 1 to 1000 kW");
   }
+  if (!Number.isFinite(input.maxPointPowerKw)
+      || input.maxPointPowerKw < 1
+      || input.maxPointPowerKw > input.powerKw) {
+    throw new Error("Proposed charger maximum point power must be from 1 kW up to total station power");
+  }
+  if (!UUID_PATTERN.test(input.requestId)) {
+    throw new Error("Proposed charger request identifier must be a UUID");
+  }
   if (!Number.isFinite(input.longitude)
       || !Number.isFinite(input.latitude)
       || input.longitude < -180
@@ -99,6 +110,8 @@ export function buildInsertTransaction(
       <${prefix}:name>${escapeXml(input.name)}</${prefix}:name>
       <${prefix}:charging_points>${input.chargingPoints}</${prefix}:charging_points>
       <${prefix}:power_kw>${input.powerKw}</${prefix}:power_kw>
+      <${prefix}:max_point_power_kw>${input.maxPointPowerKw}</${prefix}:max_point_power_kw>
+      <${prefix}:request_id>${input.requestId}</${prefix}:request_id>
       <${prefix}:${featureType.geometryName}>
         <gml:Point srsName="http://www.opengis.net/gml/srs/epsg.xml#4326">
           <gml:coordinates>${input.longitude},${input.latitude}</gml:coordinates>
@@ -163,7 +176,8 @@ export function parseTransactionResponse(xml: string): WfsTransactionResult {
     return { ok: false, error: exception || "GeoServer rejected the transaction" };
   }
 
-  const featureIdMatch = /<(?:[A-Za-z_][\w.-]*:)?FeatureId\b[^>]*\bfid=["']([^"']+)["']/i.exec(xml);
+  const featureIds = [...xml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?FeatureId\b[^>]*\bfid=["']([^"']+)["']/ig)]
+    .map((match) => decodeXml(match[1]));
   const totalInserted = numericTag(xml, "totalInserted");
   const totalUpdated = numericTag(xml, "totalUpdated");
   const totalDeleted = numericTag(xml, "totalDeleted");
@@ -181,7 +195,7 @@ export function parseTransactionResponse(xml: string): WfsTransactionResult {
 
   return {
     ok: true,
-    ...(featureIdMatch ? { insertedFeatureId: decodeXml(featureIdMatch[1]) } : {}),
+    ...(featureIds.length ? { insertedFeatureId: featureIds[0], insertedFeatureIds: featureIds } : {}),
     ...(totalInserted !== undefined ? { totalInserted } : {}),
     ...(totalUpdated !== undefined ? { totalUpdated } : {}),
     ...(totalDeleted !== undefined ? { totalDeleted } : {})

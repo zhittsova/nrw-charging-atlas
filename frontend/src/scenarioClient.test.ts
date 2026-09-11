@@ -87,29 +87,39 @@ describe("scenario WFS client", () => {
     const client = createScenarioClient(config, fetcher);
 
     await expect(client.create({
-      name: "Demo", chargingPoints: 4, powerKw: 150, longitude: 7.2, latitude: 51.2
-    })).resolves.toBe("f6e942dc-faf7-4db6-b332-928ad2cb86e3");
+      name: "Demo", chargingPoints: 4, powerKw: 150, maxPointPowerKw: 75,
+      requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7.2, latitude: 51.2
+    })).resolves.toEqual({ id: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", reconciled: false });
     const [url, options] = fetcher.mock.calls[0];
     expect(url).toBe(config.wfsUrl);
     expect(options.method).toBe("POST");
     expect(options.headers).toEqual({ "Content-Type": "text/xml; charset=UTF-8" });
     expect(options.body).toContain("<wfs:Insert>");
+    expect(options.body).toContain("<nrw:max_point_power_kw>75</nrw:max_point_power_kw>");
+    expect(options.body).toContain("<nrw:request_id>f6e942dc-faf7-4db6-b332-928ad2cb86e3</nrw:request_id>");
   });
 
   it("deletes one station and resets all proposed stations", async () => {
-    const fetcher = vi.fn().mockImplementation(async () => new Response(`
+    const fetcher = vi.fn().mockImplementation(async (_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return new Response(JSON.stringify({ type: "FeatureCollection", features: [] }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response(`
       <wfs:WFS_TransactionResponse xmlns:wfs="http://www.opengis.net/wfs">
         <wfs:TransactionResult><wfs:Status><wfs:SUCCESS/></wfs:Status></wfs:TransactionResult>
       </wfs:WFS_TransactionResponse>
-    `, { status: 200 }));
+    `, { status: 200 });
+    });
     const client = createScenarioClient(config, fetcher);
     const id = "f6e942dc-faf7-4db6-b332-928ad2cb86e3";
 
     await client.remove(id);
-    await client.reset();
+    await client.reset([id]);
 
     expect(fetcher.mock.calls[0][1].body).toContain(`<ogc:Literal>${id}</ogc:Literal>`);
-    expect(fetcher.mock.calls[1][1].body).toContain("<ogc:Literal>proposed</ogc:Literal>");
+    expect(fetcher.mock.calls[2][1].body).toContain(`<ogc:Literal>${id}</ogc:Literal>`);
   });
 
   it("surfaces a GeoServer exception even when the HTTP status is 200", async () => {
@@ -121,7 +131,8 @@ describe("scenario WFS client", () => {
     const client = createScenarioClient(config, fetcher);
 
     await expect(client.create({
-      name: "Outside", chargingPoints: 2, powerKw: 22, longitude: 10, latitude: 54
+      name: "Outside", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 10, latitude: 54
     })).rejects.toThrow("Point is outside NRW");
   });
 
@@ -133,8 +144,63 @@ describe("scenario WFS client", () => {
     const client = createScenarioClient(config, fetcher);
 
     await expect(client.create({
-      name: "Denied", chargingPoints: 2, powerKw: 22, longitude: 7.2, latitude: 51.2
+      name: "Denied", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7.2, latitude: 51.2
     })).rejects.toThrow("GeoServer transaction failed (401); authentication challenge: Basic realm=GeoServer");
+  });
+
+  it("reports a non-XML 403 response as an authorization failure without a retry", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("forbidden by gateway", { status: 403 }));
+    const client = createScenarioClient(config, fetcher);
+
+    await expect(client.create({
+      name: "Forbidden", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7.2, latitude: 51.2
+    })).rejects.toThrow("GeoServer transaction failed (403): GeoServer returned an unrecognized transaction response");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles a timeout-after-commit by request identifier without a second insert", async () => {
+    const requestId = "f6e942dc-faf7-4db6-b332-928ad2cb86e3";
+    const fetcher = vi.fn().mockImplementation(async (_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") throw new TypeError("network connection closed");
+      return new Response(JSON.stringify({
+        type: "FeatureCollection",
+        features: [{
+          type: "Feature",
+          id: "proposed_chargers.123e4567-e89b-12d3-a456-426614174000",
+          properties: { id: "123e4567-e89b-12d3-a456-426614174000", request_id: requestId },
+          geometry: { type: "Point", coordinates: [7.2, 51.2] }
+        }]
+      }), { headers: { "Content-Type": "application/json" } });
+    });
+    const client = createScenarioClient(config, fetcher);
+
+    await expect(client.create({
+      name: "Interrupted", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId, longitude: 7.2, latitude: 51.2
+    })).resolves.toEqual({ id: "123e4567-e89b-12d3-a456-426614174000", reconciled: true });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect(String(fetcher.mock.calls[1][0])).toContain("CQL_FILTER=request_id%3D%27f6e942dc");
+  });
+
+  it("looks up the retained request identifier before a recovery retry", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        id: "proposed_chargers.123e4567-e89b-12d3-a456-426614174000",
+        properties: { id: "123e4567-e89b-12d3-a456-426614174000" },
+        geometry: { type: "Point", coordinates: [7.2, 51.2] }
+      }]
+    }), { headers: { "Content-Type": "application/json" } }));
+    const client = createScenarioClient(config, fetcher);
+
+    await expect(client.create({
+      name: "Retry", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7.2, latitude: 51.2
+    }, { reconcile: true })).resolves.toEqual({ id: "123e4567-e89b-12d3-a456-426614174000", reconciled: true });
+    expect(fetcher.mock.calls[0][1].method).toBeUndefined();
   });
 
   it("rejects non-JSON GetFeature responses with an actionable error", async () => {

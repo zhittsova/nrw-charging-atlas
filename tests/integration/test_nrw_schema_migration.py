@@ -263,12 +263,12 @@ class HistoricalPublishedViewUpgradeTest(unittest.TestCase):
         )
 
         proposal = self.rows(
-            "SELECT id, name, power_kw, max_point_power_kw IS NULL, nuts_code"
+            "SELECT id, name, power_kw, max_point_power_kw IS NULL, request_id IS NULL, nuts_code"
             " FROM scenario.proposed_chargers;"
         )[0]
         self.assertEqual(
             proposal,
-            ["123e4567-e89b-12d3-a456-426614174000", "Legacy proposal", "44", "t", "DEA01"],
+            ["123e4567-e89b-12d3-a456-426614174000", "Legacy proposal", "44", "t", "t", "DEA01"],
         )
 
     def test_the_upgraded_published_layer_exposes_one_epsg_4326_geometry(self) -> None:

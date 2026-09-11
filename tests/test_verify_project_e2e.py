@@ -26,11 +26,14 @@ class ProjectEndToEndVerifierTest(unittest.TestCase):
         self.assertTrue({"nrw_chargers", "nrw_autobahns", "nrw_regional_roads"} <= verifier.WFS_SAMPLE_BBOXES.keys())
 
     def test_insert_transaction_escapes_name_and_contains_gml_point(self) -> None:
-        document = verifier.insert_xml("Research & Development <NRW>")
+        document = verifier.insert_xml(
+            "Research & Development <NRW>", "123e4567-e89b-12d3-a456-426614174000"
+        )
 
         self.assertIn("Research &amp; Development &lt;NRW&gt;", document)
         self.assertIn("<nrw:proposed_chargers>", document)
         self.assertIn("<nrw:max_point_power_kw>150</nrw:max_point_power_kw>", document)
+        self.assertIn("<nrw:request_id>123e4567-e89b-12d3-a456-426614174000</nrw:request_id>", document)
         self.assertIn('<gml:coordinates decimal="." cs="," ts=" ">6.7735,51.2277</gml:coordinates>', document)
         self.assertIn('version="1.0.0"', document)
 
