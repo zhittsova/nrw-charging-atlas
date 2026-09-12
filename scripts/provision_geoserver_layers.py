@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -171,6 +172,11 @@ def ensure_feature_type(
     layer: str,
     title: str,
 ) -> None:
+    try:
+        from scripts.geonode_metadata import LAYER_METADATA
+    except ModuleNotFoundError:
+        from geonode_metadata import LAYER_METADATA
+    abstract = LAYER_METADATA.get(layer)
     resource_url = _rest_url(
         config,
         f"workspaces/{WORKSPACE}/datastores/{store}/featuretypes/{layer}.json",
@@ -180,7 +186,7 @@ def ensure_feature_type(
             "name": layer,
             "nativeName": layer,
             "title": title,
-            "abstract": "NRW energy infrastructure intelligence project layer",
+            "abstract": abstract.abstract if abstract else "NRW energy infrastructure intelligence project layer",
             "srs": "EPSG:4326",
             "projectionPolicy": "FORCE_DECLARED",
             "nativeBoundingBox": NRW_BOUNDS,
@@ -423,6 +429,52 @@ def sync_geonode_catalog(admin_username: str) -> None:
         )
 
 
+def ensure_geonode_licences() -> None:
+    """Install only the missing exact upstream-data terms required by NRW layers."""
+    licences = [
+        {
+            "identifier": "cc-by-4.0",
+            "name": "Creative Commons Attribution 4.0 International",
+            "url": "https://creativecommons.org/licenses/by/4.0/",
+            "description": "Bundesnetzagentur Ladesäulenregister attribution term.",
+        },
+        {
+            "identifier": "dl-de-by-2.0",
+            "name": "Data Licence Germany Attribution 2.0",
+            "url": "https://www.govdata.de/dl-de/by-2-0",
+            "description": "Straßen.NRW traffic-value attribution term.",
+        },
+        {
+            "identifier": "dl-de-zero-2.0",
+            "name": "Data Licence Germany Zero 2.0",
+            "url": "https://www.govdata.de/dl-de/zero-2-0",
+            "description": "Energieatlas NRW reusable-data term.",
+        },
+    ]
+    command = (
+        "from geonode.base.models import License; "
+        f"licences = {json.dumps(licences)}; "
+        "[License.objects.update_or_create(identifier=item['identifier'], defaults=item) for item in licences]"
+    )
+    subprocess.run(
+        compose_command("exec", "-T", "django", "python", "manage.py", "shell", "-c", command),
+        check=True,
+    )
+
+
+def sync_geonode_metadata(base_url: str, admin_username: str, admin_password: str) -> dict[str, int]:
+    """Reconcile project-owned GeoNode metadata after each layer catalogue sync."""
+    try:
+        from scripts.geonode_metadata import sync_metadata
+    except ModuleNotFoundError:
+        from geonode_metadata import sync_metadata
+    session = requests.Session()
+    session.auth = (admin_username, admin_password)
+    # Serial reconciliation avoids exhausting GeoNode's sparse-field endpoint
+    # on small local deployments; individual calls already retry transient resets.
+    return sync_metadata(session, base_url)
+
+
 def read_env(path: Path) -> dict[str, str]:
     return read_env_file(path)
 
@@ -475,7 +527,16 @@ def main() -> None:
     if args.sync_geonode:
         admin_username = _required(values.get("ADMIN_USERNAME"), "ADMIN_USERNAME")
         sync_geonode_catalog(admin_username)
-        print("GeoNode catalog and dataset permissions synchronized")
+        ensure_geonode_licences()
+        metadata_result = sync_geonode_metadata(
+            values.get("GEONODE_URL", "http://localhost:8000"),
+            admin_username,
+            _required(values.get("ADMIN_PASSWORD"), "ADMIN_PASSWORD"),
+        )
+        print(
+            "GeoNode catalog, dataset permissions, and metadata synchronized "
+            f"({metadata_result['datasets']} datasets; {metadata_result['changed']} changed)"
+        )
 
 
 if __name__ == "__main__":

@@ -228,6 +228,9 @@ const layerStates: Partial<Record<"districts" | "stations" | "renewables" | "reg
 let illuminatedMap = true;
 let basemapState: "available" | "fallback" = "available";
 const map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: false }).setView(NRW_CENTER, 7);
+// GISCO district boundaries remain visible when the optional OSM tiles are
+// removed, so their required acknowledgement belongs to the map itself.
+map.attributionControl.addAttribution("© EuroGeographics for the administrative boundaries");
 map.createPane("regions");
 map.createPane("regionalRoads");
 map.createPane("autobahnCasing");

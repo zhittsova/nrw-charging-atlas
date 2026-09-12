@@ -218,8 +218,10 @@ button:hover { background:#14324b; border-color:#65b3ff; }
 .leaflet-container .station-popup h3 { color:#9be7ff; }
 .leaflet-bar a { background:#0c1c2b; color:#e7eef6; border-color:#476078; }
 .leaflet-bar a:hover { background:#14324b; color:white; }
-.leaflet-control-attribution { background:#0c1c2bee !important; color:#a4b6c8; }
-.leaflet-control-attribution a { color:#91caff; }
+/* Leaflet's stylesheet can be emitted after this bundle; map-scoped important
+   foregrounds keep both OSM and GISCO acknowledgements readable on dark maps. */
+#map .leaflet-control-attribution { background:#0c1c2bee !important; color:#d6e7f5 !important; }
+#map .leaflet-control-attribution a { color:#9be7ff !important; }
 #map { background:#09131d; }
 .visible-methods .methodology-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
 .visible-methods .methodology-list section { padding:14px 0 0; }
