@@ -25,12 +25,34 @@ export const DEFAULT_LAYER_READ_TIMEOUT_MS = 30_000;
 
 export const CANONICAL_DISTRICT_FIELDS = [
   "nuts_code", "district_name", "chargers_total", "charging_points_total",
-  "fast_chargers_total", "priority_rank",
+  "fast_chargers_total", "normal_chargers_total", "unknown_power_chargers_total", "priority_rank",
   "ev_readiness_score", "charger_deficit_score", "infrastructure_opportunity_score",
   "investment_priority_score", "data_quality_flag", "formula_version",
   "population_source_year", "transport_data_quality_flag", "grid_data_quality_flag",
   "energy_data_quality_flag", "operating_asset_renewable_capacity_mw",
-  "municipal_workbook_renewable_capacity_mw"
+  "municipal_workbook_renewable_capacity_mw", "transport_load_score",
+  "traffic_intensity_score", "traffic_road_density_score", "road_proximity_score",
+  "grid_readiness_proxy_score", "substation_proximity_score", "voltage_line_density_score",
+  "substation_density_score", "renewable_context_score", "renewable_capacity_density_score",
+  "renewable_technology_diversity_score", "local_energy_balance_score",
+  "renewable_growth_score", "grid_absorption_risk_proxy_score", "energy_reporting_year",
+  "charger_snapshot_date", "charger_snapshot_unavailable_reason",
+  "consumption_municipal_coverage", "renewable_municipal_coverage",
+  "municipal_workbook_renewable_capacity_coverage", "energy_unavailable_reason",
+  "traffic_intensity_dtv", "traffic_weighted_road_density", "traffic_road_length_km",
+  "traffic_measured_length_km", "traffic_length_coverage", "distance_to_nearest_road_m",
+  "voltage_weighted_line_density", "substation_density", "distance_to_nearest_substation_m",
+  "grid_line_length_km", "substation_count", "maximum_mapped_voltage_kv",
+  "line_voltage_coverage", "substation_voltage_coverage",
+  "operating_asset_renewable_capacity_mw_per_km2", "renewable_installation_count",
+  "renewable_technology_count", "consumption_mwh", "published_generation_mwh",
+  "estimated_wind_generation_mwh", "total_renewable_generation_mwh", "renewable_balance_ratio",
+  "renewable_coverage_pct", "renewable_net_addition_3y_mw",
+  "renewable_growth_density_mw_per_km2", "expected_municipalities", "growth_years_required",
+  "growth_years_reported", "wind_full_load_hours", "renewable_growth_window_years",
+  "wind_estimate_note", "municipal_workbook_capacity_reporting_year",
+  "municipal_workbook_renewable_capacity_unavailable_reason", "charger_snapshot_source",
+  "formula_version_date", "energy_source"
 ] as const;
 
 export const CANONICAL_STATION_FIELDS = [

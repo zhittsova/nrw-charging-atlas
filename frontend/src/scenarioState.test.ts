@@ -11,6 +11,9 @@ const metrics = {
   baseline_charging_points_total: 20,
   scenario_charging_points_total: 26,
   charging_points_total_delta: 6,
+  baseline_charging_points_per_km2: 1.5,
+  scenario_charging_points_per_km2: 1.9,
+  charging_points_per_km2_delta: 0.4,
   baseline_fast_chargers_total: 4,
   scenario_fast_chargers_total: 5,
   fast_chargers_total_delta: 1,
@@ -52,6 +55,7 @@ describe("scenario display state", () => {
     expect(projectScenarioProperties(metrics, "baseline")).toMatchObject({
       chargers_total: 10,
       charging_points_total: 20,
+      charging_points_per_km2: 1.5,
       fast_chargers_total: 4,
       ev_readiness_score: 40,
       charger_deficit_score: 60,
@@ -67,6 +71,7 @@ describe("scenario display state", () => {
     expect(projected).toMatchObject({
       chargers_total: 12,
       charging_points_total: 26,
+      charging_points_per_km2: 1.9,
       fast_chargers_total: 5,
       ev_readiness_score: 52.5,
       charger_deficit_score: 47.5,
@@ -86,6 +91,7 @@ describe("scenario display state", () => {
     expect(projectScenarioProperties(metrics, "change")).toMatchObject({
       chargers_total: 2,
       charging_points_total: 6,
+      charging_points_per_km2: 0.4,
       fast_chargers_total: 1,
       ev_readiness_score: 12.5,
       charger_deficit_score: -12.5,

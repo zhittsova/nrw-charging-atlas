@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createScenarioClient, SCENARIO_METRIC_FIELDS } from "./scenarioClient";
+import { createScenarioClient, SCENARIO_METRIC_FIELDS, UncertainScenarioInsertError } from "./scenarioClient";
 
 
 const config = {
@@ -184,6 +184,35 @@ describe("scenario WFS client", () => {
     expect(String(fetcher.mock.calls[1][0])).toContain("CQL_FILTER=request_id%3D%27f6e942dc");
   });
 
+  it("reconciles a committed insert after a malformed HTTP 200 response without a second insert", async () => {
+    const requestId = "f6e942dc-faf7-4db6-b332-928ad2cb86e3";
+    const savedId = "123e4567-e89b-12d3-a456-426614174000";
+    let lookups = 0;
+    const fetcher = vi.fn().mockImplementation(async (_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Response("<html>gateway response</html>", { status: 200 });
+      lookups += 1;
+      return new Response(JSON.stringify({
+        type: "FeatureCollection",
+        features: lookups === 1 ? [] : [{
+          type: "Feature",
+          id: `proposed_chargers.${savedId}`,
+          properties: { id: savedId, request_id: requestId },
+          geometry: { type: "Point", coordinates: [7.2, 51.2] }
+        }]
+      }), { headers: { "Content-Type": "application/json" } });
+    });
+    const client = createScenarioClient(config, fetcher);
+    const input = {
+      name: "Malformed response", chargingPoints: 2, powerKw: 22, maxPointPowerKw: 22,
+      requestId, longitude: 7.2, latitude: 51.2
+    };
+
+    await expect(client.create(input)).rejects.toBeInstanceOf(UncertainScenarioInsertError);
+    await expect(client.create(input, { reconcile: true })).resolves.toEqual({ id: savedId, reconciled: true });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect(lookups).toBe(2);
+  });
+
   it("looks up the retained request identifier before a recovery retry", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       type: "FeatureCollection",
@@ -201,6 +230,72 @@ describe("scenario WFS client", () => {
       requestId: "f6e942dc-faf7-4db6-b332-928ad2cb86e3", longitude: 7.2, latitude: 51.2
     }, { reconcile: true })).resolves.toEqual({ id: "123e4567-e89b-12d3-a456-426614174000", reconciled: true });
     expect(fetcher.mock.calls[0][1].method).toBeUndefined();
+  });
+
+  it("continues a partial reset after a previously deleted station returns a zero count", async () => {
+    const firstId = "f6e942dc-faf7-4db6-b332-928ad2cb86e3";
+    const secondId = "123e4567-e89b-12d3-a456-426614174000";
+    const deleted = new Set<string>();
+    let secondDeleteFails = true;
+    const deletedIds: string[] = [];
+    const idFromXml = (xml: string) => xml.match(/<ogc:Literal>([^<]+)<\/ogc:Literal>/)?.[1] ?? "";
+    const fetcher = vi.fn().mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const id = idFromXml(String(init.body));
+        if (id === secondId && secondDeleteFails) {
+          secondDeleteFails = false;
+          throw new TypeError("connection closed after first deletion");
+        }
+        if (deleted.has(id)) {
+          return new Response("<wfs:TransactionResponse><wfs:TransactionSummary><wfs:totalDeleted>0</wfs:totalDeleted></wfs:TransactionSummary></wfs:TransactionResponse>", { status: 200 });
+        }
+        deleted.add(id);
+        return new Response("<wfs:TransactionResponse><wfs:TransactionSummary><wfs:totalDeleted>1</wfs:totalDeleted></wfs:TransactionSummary></wfs:TransactionResponse>", { status: 200 });
+      }
+      const id = new URL(String(url)).searchParams.get("CQL_FILTER")?.match(/'([^']+)'/)?.[1] ?? "";
+      return new Response(JSON.stringify({ type: "FeatureCollection", features: deleted.has(id) ? [] : [{ type: "Feature" }] }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+    const client = createScenarioClient(config, fetcher);
+
+    await expect(client.reset([firstId, secondId], (id) => deletedIds.push(id))).rejects.toThrow("connection closed");
+    await expect(client.reset([firstId, secondId], (id) => deletedIds.push(id))).resolves.toBeUndefined();
+
+    expect(deletedIds).toEqual([firstId, firstId, secondId]);
+    expect(deleted).toEqual(new Set([firstId, secondId]));
+  });
+
+  it("accepts a zero-count retry only after a UUID-scoped read confirms a lost delete response committed", async () => {
+    const id = "f6e942dc-faf7-4db6-b332-928ad2cb86e3";
+    const fetcher = vi.fn().mockImplementation(async (_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response("<wfs:TransactionResponse><wfs:TransactionSummary><wfs:totalDeleted>0</wfs:totalDeleted></wfs:TransactionSummary></wfs:TransactionResponse>", { status: 200 });
+      }
+      return new Response(JSON.stringify({ type: "FeatureCollection", features: [] }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+
+    await expect(createScenarioClient(config, fetcher).remove(id)).resolves.toBeUndefined();
+    expect(String(fetcher.mock.calls[0][1].body)).toContain(`<ogc:Literal>${id}</ogc:Literal>`);
+    expect(String(fetcher.mock.calls[1][0])).toContain("CQL_FILTER=id%3D%27f6e942dc");
+  });
+
+  it("reconciles an actually lost delete response only after a UUID-scoped absence check", async () => {
+    const id = "f6e942dc-faf7-4db6-b332-928ad2cb86e3";
+    const fetcher = vi.fn().mockImplementation(async (_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") throw new TypeError("connection closed after commit");
+      return new Response(JSON.stringify({ type: "FeatureCollection", features: [] }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+
+    await expect(createScenarioClient(config, fetcher).remove(id)).resolves.toBeUndefined();
+    expect(fetcher.mock.calls.map(([, init]) => init?.method === "POST" ? "POST" : "GET"))
+      .toEqual(["POST", "GET"]);
+    expect(String(fetcher.mock.calls[0][1].body)).toContain(`<ogc:Literal>${id}</ogc:Literal>`);
+    expect(String(fetcher.mock.calls[1][0])).toContain("CQL_FILTER=id%3D%27f6e942dc");
   });
 
   it("rejects non-JSON GetFeature responses with an actionable error", async () => {

@@ -63,6 +63,16 @@ export class UncertainScenarioInsertError extends Error {
   }
 }
 
+class WfsTransactionError extends Error {
+  readonly definiteNonCommit: boolean;
+
+  constructor(message: string, definiteNonCommit: boolean) {
+    super(message);
+    this.name = "WfsTransactionError";
+    this.definiteNonCommit = definiteNonCommit;
+  }
+}
+
 function getFeatureUrl(wfsUrl: string, typeName: string): string {
   const query = new URLSearchParams({
     service: "WFS",
@@ -131,11 +141,19 @@ async function transact(fetcher: FetchLike, wfsUrl: string, xml: string, timeout
         ? "GeoServer returned a success-shaped response with a failing HTTP status"
         : result.error;
       const authentication = challenge ? `; authentication challenge: ${challenge}` : "";
-      throw new Error(`GeoServer transaction failed (${response.status})${authentication}: ${detail}`);
+      // A 4xx response means the request was rejected before a write. A 5xx
+      // can occur after GeoServer has applied it, so callers must reconcile.
+      throw new WfsTransactionError(
+        `GeoServer transaction failed (${response.status})${authentication}: ${detail}`,
+        response.status >= 400 && response.status < 500 || result.errorKind === "exception"
+      );
     }
     const result = parseTransactionResponse(body);
     if (!result.ok) {
-      throw new Error(`GeoServer rejected the transaction: ${result.error}`);
+      throw new WfsTransactionError(
+        `GeoServer rejected the transaction: ${result.error}`,
+        result.errorKind === "exception"
+      );
     }
     return result;
   });
@@ -154,6 +172,7 @@ function mutationCountError(action: "insert" | "delete", count: number | undefin
 }
 
 function isUncertainInsertFailure(error: unknown): boolean {
+  if (error instanceof WfsTransactionError) return !error.definiteNonCommit;
   if (!(error instanceof Error)) return true;
   // An explicit 4xx denial or validation error is a definite non-commit. A
   // timeout, network failure, malformed success response, or 5xx can occur
@@ -189,6 +208,16 @@ export function createScenarioClient(
   fetcher: FetchLike = fetch
 ) {
   const timeoutMs = config.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const findById = async (id: string): Promise<GeoJsonFeatureCollection> => request(fetcher, getFilteredFeatureUrl(
+    config.wfsUrl, config.proposedLayer, "id", id
+  ), { cache: "no-store", credentials: "same-origin" }, timeoutMs, async (response) => {
+    if (!response.ok) throw new Error(`GeoServer delete confirmation failed (${response.status})`);
+    const body = await response.json() as GeoJsonFeatureCollection;
+    if (body.type !== "FeatureCollection" || !Array.isArray(body.features)) {
+      throw new Error("GeoServer returned invalid delete confirmation data");
+    }
+    return body;
+  });
   return {
     // An empty proposal collection is a legitimate no-proposal state. Metrics are not.
     loadProposedChargers: () => loadGeoJson(fetcher, config.wfsUrl, config.proposedLayer, { timeoutMs }),
@@ -252,22 +281,50 @@ export function createScenarioClient(
       }
     },
     async remove(id: string): Promise<void> {
-      const result = await transact(fetcher, config.wfsUrl, buildDeleteTransaction(id, config.featureType), timeoutMs);
+      const confirmAbsent = async (): Promise<void> => {
+        const remaining = await findById(id);
+        if (remaining.features.length) throw new Error("GeoServer did not confirm deletion of the proposed station");
+      };
+      let result;
+      try {
+        result = await transact(fetcher, config.wfsUrl, buildDeleteTransaction(id, config.featureType), timeoutMs);
+      } catch (error) {
+        // A lost response can follow a committed delete. Reconcile absence
+        // before surfacing the original failure, without broadening the UUID
+        // filter used by the delete transaction.
+        try {
+          await confirmAbsent();
+          return;
+        } catch {
+          throw error;
+        }
+      }
       const countError = mutationCountError("delete", result.totalDeleted, 1);
-      if (countError) throw countError;
-      const remaining = await request(fetcher, getFilteredFeatureUrl(
-        config.wfsUrl, config.proposedLayer, "id", id
-      ), { cache: "no-store", credentials: "same-origin" }, timeoutMs, async (response) => {
-        if (!response.ok) throw new Error(`GeoServer delete confirmation failed (${response.status})`);
-        return await response.json() as GeoJsonFeatureCollection;
-      });
-      if (remaining.features.length) throw new Error("GeoServer did not confirm deletion of the proposed station");
+      if (countError) {
+        // A zero count is expected when a previous delete committed but its
+        // response was lost. Only accept it after a UUID-scoped read proves
+        // the station is gone; counts greater than one always remain a hard
+        // safety failure.
+        if (result.totalDeleted === 0) {
+          try {
+            await confirmAbsent();
+            return;
+          } catch {
+            throw countError;
+          }
+        }
+        throw countError;
+      }
+      await confirmAbsent();
     },
-    async reset(ids: readonly string[]): Promise<void> {
+    async reset(ids: readonly string[], onRemoved?: (id: string) => void): Promise<void> {
       // Reset is intentionally a sequence of UUID-filtered deletes.  A shared
       // local scenario can contain proposals from other browser sessions, and
       // those must not be removed by this browser's cleanup action.
-      for (const id of ids) await this.remove(id);
+      for (const id of ids) {
+        await this.remove(id);
+        onRemoved?.(id);
+      }
     }
   };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTOBAHN_STYLE,
+  illuminatedScoreColor,
   OVERLAY_ORDER,
   REGIONAL_ROAD_STYLE,
   RENEWABLE_LEGEND_ITEMS,
@@ -17,9 +18,40 @@ import {
 } from "./mapPresentation";
 
 describe("map presentation", () => {
-  it("uses a non-green purple-to-coral score palette", () => {
-    expect([10, 40, 55, 70, 90].map((score) => scoreColor(score, "baseline", "evReadinessScore")))
-      .toEqual(["#eff3ff", "#bdd7e7", "#6baed6", "#2171b5", "#084594"]);
+  it("uses a continuous blue-to-purple score ramp with clamped endpoints", () => {
+    expect([0, 25, 50, 75, 100].map((score) => scoreColor(score, "baseline", "evReadinessScore")))
+      .toEqual(["#f2f7ff", "#b8d9ff", "#4399f4", "#5935c2", "#470c75"]);
+    expect(scoreColor(12.5, "scenario", "investmentPriorityScore")).toBe("#d5e8ff");
+    expect(scoreColor(-1, "baseline", "evReadinessScore")).toBe("#f2f7ff");
+    expect(scoreColor(101, "baseline", "evReadinessScore")).toBe("#470c75");
+  });
+
+  it("keeps illuminated bins increasing in lightness and preserves change semantics", () => {
+    const luminance = (hex: string) => {
+      const channels = [1, 3, 5].map((start) => {
+        const value = parseInt(hex.slice(start, start + 2), 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const values = [0, 35, 50, 65, 80].map((score) =>
+      luminance(illuminatedScoreColor(score, "baseline", "investmentPriorityScore")));
+    values.slice(1).forEach((value, index) => expect(value).toBeGreaterThan(values[index]));
+    for (const metric of ["evReadinessScore", "chargerDeficitScore"] as const) {
+      for (const delta of [-12, -5, 0, 5, 12]) {
+        expect(illuminatedScoreColor(delta, "change", metric)).toBe(scoreColor(delta, "change", metric));
+      }
+    }
+  });
+
+  it("interpolates the dark-blue to yellow ramp and clamps score bounds", () => {
+    expect(illuminatedScoreColor(0, "baseline", "investmentPriorityScore")).toBe("#081a3b");
+    expect(illuminatedScoreColor(100, "baseline", "investmentPriorityScore")).toBe("#fff36b");
+    expect(illuminatedScoreColor(90, "scenario", "investmentPriorityScore")).toBe("#ffe34f");
+    expect(illuminatedScoreColor(-1, "baseline", "evReadinessScore")).toBe("#081a3b");
+    expect(illuminatedScoreColor(101, "baseline", "evReadinessScore")).toBe("#fff36b");
+    expect(illuminatedScoreColor(80, "change", "investmentPriorityScore"))
+      .toBe(scoreColor(80, "change", "investmentPriorityScore"));
   });
 
   it("uses blue-neutral-magenta semantics for scenario change", () => {
