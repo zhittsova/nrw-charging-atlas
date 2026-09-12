@@ -5,6 +5,13 @@ export type MapScoreMetric =
   | "infrastructureOpportunityScore";
 
 export type MapScenarioMode = "baseline" | "scenario" | "change";
+export type BasemapState = "available" | "fallback";
+
+export function basemapAvailabilityMessage(state: BasemapState): string {
+  return state === "fallback"
+    ? "Basemap tiles are unavailable. Vector-only fallback is active; district and infrastructure layers remain usable."
+    : "OpenStreetMap basemap tiles are available.";
+}
 
 export const OVERLAY_ORDER = [
   "districts",
@@ -288,9 +295,11 @@ export function officialStationStyle(maxPointPowerKw: number | null, zoom = 9) {
   return {
     pane: "stations",
     radius: (highPower ? 4 : 2.9) * scale,
-    color: highPower ? "#fff1f2" : "#fce7f3",
+    // Cyan identifies the official network. The warmer yellow is reserved for
+    // a ≥150 kW maximum point power, so it still reads at small map scales.
+    color: highPower ? "#fff7d6" : "#cffafe",
     weight: (highPower ? 1.05 : 0.8) * Math.max(scale, 0.65),
-    fillColor: highPower ? "#f472b6" : "#ec4899",
+    fillColor: highPower ? "#fbbf24" : "#22d3ee",
     fillOpacity: highPower ? 0.98 : 0.9
   };
 }
@@ -300,12 +309,12 @@ export function operatorTooltip(operator: string | undefined): string {
   return `<strong>${escapeHtml(label)}</strong><span>Charging-station operator</span>`;
 }
 
-/** Continuous score ramp shared by district fills and the visible legend. */
+/** Continuous neon-plum-to-mint score ramp shared by district fills and the visible legend. */
 export function illuminatedScoreColor(score: number, mode: MapScenarioMode, metric: MapScoreMetric): string {
   if (mode === "change") return scoreColor(score, mode, metric);
   const stops: [number, number[]][] = [
-    [0, [8, 26, 59]], [35, [22, 74, 120]], [50, [88, 124, 131]],
-    [65, [196, 155, 69]], [80, [255, 211, 51]], [100, [255, 243, 107]]
+    [0, [29, 18, 56]], [35, [76, 39, 126]], [50, [163, 57, 181]],
+    [65, [238, 78, 156]], [80, [82, 232, 193]], [100, [186, 255, 211]]
   ];
   return interpolateScoreRamp(score, stops);
 }

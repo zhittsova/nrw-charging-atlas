@@ -19,6 +19,7 @@ import {
 } from "./scenarioState";
 import {
   AUTOBAHN_STYLE,
+  basemapAvailabilityMessage,
   illuminatedScoreColor,
   REGIONAL_ROAD_STYLE,
   RENEWABLE_LEGEND_ITEMS,
@@ -200,6 +201,8 @@ let proposedStations: FeatureCollection<StationProperties> = { type: "FeatureCol
 let selectedRegionId: string | null = null;
 let selectedLayer: L.Layer | null = null;
 let pendingLocation: L.LatLng | null = null;
+let scenarioDialogTrigger: HTMLElement | null = null;
+let scenarioKeyboardLocationEntry = false;
 const scenarioDialogState = new ScenarioDialogState();
 let awaitingMapClick = false;
 let scenarioServiceAvailable = false;
@@ -223,6 +226,7 @@ const ownedRequestIds = new Set<string>((() => {
 const layerStates: Partial<Record<"districts" | "stations" | "renewables" | "regional roads" | "autobahns", LayerRead<unknown>>> = {};
 
 let illuminatedMap = true;
+let basemapState: "available" | "fallback" = "available";
 const map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: false }).setView(NRW_CENTER, 7);
 map.createPane("regions");
 map.createPane("regionalRoads");
@@ -239,10 +243,39 @@ map.getPane("renewableAssets")!.style.zIndex = "460";
 map.getPane("stations")!.style.zIndex = "470";
 map.getPane("proposedStations")!.style.zIndex = "490";
 
+// A proposed-stations Canvas would occupy its whole upper pane and swallow
+// clicks aimed at official stations beneath it. Keep the dense official layer
+// on the map's Canvas renderer, and use SVG only for the smaller proposal
+// layer: blank SVG space does not intercept pointer input, while proposal paths
+// remain independently interactive.
+const proposedStationRenderer = L.svg({ pane: "proposedStations" });
+
+const vectorFallback = L.layerGroup();
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
+
+function activateBasemapFallback(): void {
+  if (basemapState === "fallback") return;
+  basemapState = "fallback";
+  osm.removeFrom(map);
+  vectorFallback.addTo(map);
+  map.getContainer().classList.add("map-basemap-unavailable");
+  renderReadStates();
+}
+
+vectorFallback.on("add", () => {
+  basemapState = "fallback";
+  map.getContainer().classList.add("map-basemap-unavailable");
+  renderReadStates();
+});
+osm.on("tileerror", activateBasemapFallback);
+osm.on("add", () => {
+  basemapState = "available";
+  map.getContainer().classList.remove("map-basemap-unavailable");
+  renderReadStates();
+});
 
 const stationLayer = L.geoJSON(undefined, {
   pane: "stations",
@@ -348,7 +381,7 @@ const renewableAssetLayer = L.geoJSON(undefined, {
       </div>
     `);
   }
-});
+}).addTo(map);
 
 function refreshAutobahns(): void {
   const visibleAutobahns = selectAutobahnFeaturesForZoom(autobahnFeatures.features, map.getZoom());
@@ -389,11 +422,12 @@ const proposedStationLayer = L.geoJSON(undefined, {
   pane: "proposedStations",
   pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
     pane: "proposedStations",
+    renderer: proposedStationRenderer,
     radius: 6,
     dashArray: "3 2",
     color: "#fff1f2",
     weight: 1.5,
-    fillColor: "#db2777",
+    fillColor: "#8b5cf6",
     fillOpacity: 0.92
   }),
   onEachFeature: (feature, layer) => {
@@ -444,7 +478,8 @@ const regionLayer = L.geoJSON(undefined, {
 L.control
   .layers(
     {
-      OpenStreetMap: osm
+      OpenStreetMap: osm,
+      "Vector-only fallback": vectorFallback
     },
     {
       "Proposed charging stations": proposedStationLayer,
@@ -464,9 +499,9 @@ function renderOverlayLegend(): void {
   const items: string[] = [];
   if (map.hasLayer(stationLayer)) {
     items.push(row("Official station · point power <150 kW / unknown", officialStationStyle(null).fillColor));
-    items.push(row("Official station · point power ≥150 kW", officialStationStyle(150).fillColor));
+    items.push(row("Official station · high power ≥150 kW", officialStationStyle(150).fillColor));
   }
-  if (map.hasLayer(proposedStationLayer)) items.push(row("Proposed station", "#db2777", "proposal"));
+  if (map.hasLayer(proposedStationLayer)) items.push(row("Proposed station", "#8b5cf6", "proposal"));
   if (map.hasLayer(renewableAssetLayer)) {
     items.push(...RENEWABLE_LEGEND_ITEMS.map(({ label, color }) => row(label, color)));
   }
@@ -982,7 +1017,7 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
       return `${scoreColor(value, activeScore)} ${value}%`;
     }).join(",");
     const scale = continuous
-      ? `<div class="score-ramp" role="img" aria-label="Score 0 to 100: ${illuminatedMap ? "dark blue for low scores, bright yellow for high scores" : "light blue for low scores, deep purple for high scores"}" style="background:linear-gradient(90deg,${gradient})"></div>
+      ? `<div class="score-ramp" role="img" aria-label="Score 0 to 100: ${illuminatedMap ? "deep plum for low scores, neon mint for high scores" : "light blue for low scores, deep purple for high scores"}" style="background:linear-gradient(90deg,${gradient})"></div>
          <div class="score-ticks"><span>0 · Low</span><span>25</span><span>50</span><span>75</span><span>100 · High</span></div>`
       : `<div class="score-bins">${bins.map(([value, label]) => `<span><i style="background:${scoreColor(value, activeScore)}"></i>${label}</span>`).join("")}</div>`;
     legend.innerHTML = `<div class="score-key-heading"><strong>${escapeHtml(scoreLabels[activeScore])}</strong><span>${scenarioViewMode === "change" ? "Change in points" : "Score / 100"}</span></div>`
@@ -1020,9 +1055,6 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
         ? (score! > 0 ? "increase" : score! < 0 ? "decrease" : "unchanged")
         : "";
       item.setAttribute("aria-label", `${regionName(p)}, ${scoreLabels[metric]} ${formatScore(score)}${direction ? `, ${direction}` : ""}. Show district.`);
-      item.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.click(); }
-      });
       item.innerHTML = `
         <span class="ranking-rank">${escapeHtml(lead)}</span>
         <span class="ranking-dot"></span>
@@ -1033,6 +1065,9 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
       item.addEventListener("click", () => {
         selectRegion(feature);
         fitFeature(feature);
+      });
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.click(); }
       });
       list.appendChild(item);
     });
@@ -1050,6 +1085,9 @@ function renderRanking(metric: ScoreMetric = activeRanking): void {
       item.addEventListener("click", () => {
         selectRegion(feature);
         fitFeature(feature);
+      });
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.click(); }
       });
       list.appendChild(item);
     });
@@ -1072,9 +1110,15 @@ function renderReadStates(): void {
     : districtState?.state === "snapshot" || districtState?.state === "stale"
       ? `${districtState.state === "stale" ? "Stale" : "Canonical"} district snapshot in use. It carries the same published fields as the live layer; source state is shown below.`
       : "District comparisons are unavailable because neither the canonical WFS layer nor a valid canonical snapshot could be read.");
-  const note = document.querySelector(".map-note");
-  if (note) {
-    note.textContent = `${states.join("; ") || "data unavailable"}. Renewable overlay: operating wind assets and ground-mounted solar farms only; building-mounted solar is hidden. This display filter does not change district energy totals.`;
+  const availability = document.getElementById("map-availability-note");
+  if (availability) {
+    const unavailable = Object.entries(layerStates)
+      .filter(([, result]) => result.state === "unavailable")
+      .map(([layer]) => layer);
+    const basemapNote = basemapAvailabilityMessage(basemapState);
+    availability.textContent = unavailable.length
+      ? `${basemapNote} Unavailable map layers: ${unavailable.join(", ")}. The remaining layers are still usable. `
+      : `${basemapNote} ${states.join("; ") || "data unavailable"}. Renewable overlay: operating wind assets and ground-mounted solar farms only; building-mounted solar is hidden. `;
   }
 }
 
@@ -1241,9 +1285,16 @@ async function removeScenarioStation(id: string, requestId: string): Promise<voi
   }
 }
 
-function beginAddScenarioStation(): void {
+function beginAddScenarioStation(trigger?: HTMLElement, keyboardEntry = false): void {
   if (!scenarioServiceAvailable) {
     setScenarioAvailability(false, "the scenario service is not available");
+    return;
+  }
+  scenarioDialogTrigger = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  scenarioKeyboardLocationEntry = keyboardEntry;
+  if (keyboardEntry) {
+    openScenarioDialog(map.getCenter());
+    setScenarioStatus("Enter a location with latitude and longitude, then complete the proposed-station form.");
     return;
   }
   awaitingMapClick = true;
@@ -1259,18 +1310,31 @@ function closeScenarioDialog(): void {
   const modal = document.getElementById("scenario-modal") as HTMLElement | null;
   if (modal) modal.hidden = true;
   pendingLocation = null;
+  scenarioKeyboardLocationEntry = false;
   awaitingMapClick = false;
   map.getContainer().classList.remove("scenario-pick-mode");
   setText("scenario-form-error", "");
+  const focusTarget = scenarioDialogTrigger?.isConnected
+    ? scenarioDialogTrigger
+    : document.getElementById("scenario-add-button");
+  scenarioDialogTrigger = null;
+  focusTarget?.focus();
 }
 
 function openScenarioDialog(location: L.LatLng): void {
   if (!scenarioDialogState.beginDialog()) return;
   pendingLocation = location;
   setText("scenario-location", `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`);
+  const latitude = document.getElementById("scenario-latitude") as HTMLInputElement | null;
+  const longitude = document.getElementById("scenario-longitude") as HTMLInputElement | null;
+  if (latitude) latitude.value = location.lat.toFixed(6);
+  if (longitude) longitude.value = location.lng.toFixed(6);
   const modal = document.getElementById("scenario-modal") as HTMLElement | null;
   if (modal) modal.hidden = false;
-  (document.getElementById("scenario-name") as HTMLInputElement | null)?.focus();
+  window.requestAnimationFrame(() => {
+    const firstField = scenarioKeyboardLocationEntry ? "scenario-latitude" : "scenario-name";
+    (document.getElementById(firstField) as HTMLInputElement | null)?.focus();
+  });
 }
 
 map.on("click", (event) => {
@@ -1420,10 +1484,33 @@ document.getElementById("scenario-layer-toggle")?.addEventListener("change", (ev
   else proposedStationLayer.removeFrom(map);
 });
 
-document.getElementById("scenario-add-button")?.addEventListener("click", beginAddScenarioStation);
-document.getElementById("map-add-station")?.addEventListener("click", beginAddScenarioStation);
+document.getElementById("scenario-add-button")?.addEventListener("click", (event) => beginAddScenarioStation(event.currentTarget as HTMLElement, event.detail === 0));
+document.getElementById("map-add-station")?.addEventListener("click", (event) => beginAddScenarioStation(event.currentTarget as HTMLElement, event.detail === 0));
 document.getElementById("scenario-modal-close")?.addEventListener("click", closeScenarioDialog);
 document.getElementById("scenario-cancel")?.addEventListener("click", closeScenarioDialog);
+
+document.getElementById("scenario-modal")?.addEventListener("keydown", (event) => {
+  const modal = event.currentTarget as HTMLElement;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeScenarioDialog();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = [...modal.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href]'
+  )].filter((element) => !element.hidden && element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 
 document.getElementById("scenario-reset-button")?.addEventListener("click", async () => {
   const owned = proposedStations.features.filter((feature) => {
@@ -1463,6 +1550,18 @@ document.getElementById("scenario-form")?.addEventListener("submit", async (even
   const chargingPoints = Number((document.getElementById("scenario-points") as HTMLInputElement).value);
   const powerKw = Number((document.getElementById("scenario-power") as HTMLInputElement).value);
   const maxPointPowerKw = Number((document.getElementById("scenario-max-point-power") as HTMLInputElement).value);
+  const latitude = Number((document.getElementById("scenario-latitude") as HTMLInputElement).value);
+  const longitude = Number((document.getElementById("scenario-longitude") as HTMLInputElement).value);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    setText("scenario-form-error", "Enter a latitude and longitude inside NRW before saving a proposal.");
+    return;
+  }
+  const enteredLocation = L.latLng(latitude, longitude);
+  if (!L.latLngBounds(NRW_BOUNDS).contains(enteredLocation)) {
+    setText("scenario-form-error", "Enter a latitude and longitude inside NRW before saving a proposal.");
+    return;
+  }
+  pendingLocation = enteredLocation;
   if (submit) submit.disabled = true;
   setText("scenario-form-error", "");
   try {

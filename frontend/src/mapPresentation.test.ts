@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTOBAHN_STYLE,
+  basemapAvailabilityMessage,
   illuminatedScoreColor,
   OVERLAY_ORDER,
   REGIONAL_ROAD_STYLE,
@@ -18,6 +19,11 @@ import {
 } from "./mapPresentation";
 
 describe("map presentation", () => {
+  it("names the nonfatal vector-only basemap fallback", () => {
+    expect(basemapAvailabilityMessage("available")).toContain("available");
+    expect(basemapAvailabilityMessage("fallback")).toContain("Vector-only fallback");
+  });
+
   it("uses a continuous blue-to-purple score ramp with clamped endpoints", () => {
     expect([0, 25, 50, 75, 100].map((score) => scoreColor(score, "baseline", "evReadinessScore")))
       .toEqual(["#f2f7ff", "#b8d9ff", "#4399f4", "#5935c2", "#470c75"]);
@@ -44,12 +50,12 @@ describe("map presentation", () => {
     }
   });
 
-  it("interpolates the dark-blue to yellow ramp and clamps score bounds", () => {
-    expect(illuminatedScoreColor(0, "baseline", "investmentPriorityScore")).toBe("#081a3b");
-    expect(illuminatedScoreColor(100, "baseline", "investmentPriorityScore")).toBe("#fff36b");
-    expect(illuminatedScoreColor(90, "scenario", "investmentPriorityScore")).toBe("#ffe34f");
-    expect(illuminatedScoreColor(-1, "baseline", "evReadinessScore")).toBe("#081a3b");
-    expect(illuminatedScoreColor(101, "baseline", "evReadinessScore")).toBe("#fff36b");
+  it("interpolates the neon plum-to-mint ramp and clamps score bounds", () => {
+    expect(illuminatedScoreColor(0, "baseline", "investmentPriorityScore")).toBe("#1d1238");
+    expect(illuminatedScoreColor(100, "baseline", "investmentPriorityScore")).toBe("#baffd3");
+    expect(illuminatedScoreColor(90, "scenario", "investmentPriorityScore")).toBe("#86f4ca");
+    expect(illuminatedScoreColor(-1, "baseline", "evReadinessScore")).toBe("#1d1238");
+    expect(illuminatedScoreColor(101, "baseline", "evReadinessScore")).toBe("#baffd3");
     expect(illuminatedScoreColor(80, "change", "investmentPriorityScore"))
       .toBe(scoreColor(80, "change", "investmentPriorityScore"));
   });
@@ -61,7 +67,7 @@ describe("map presentation", () => {
     expect(scoreColor(-12, "change", "chargerDeficitScore")).toBe("#2563eb");
   });
 
-  it("keeps dense official stations pink without obscuring the district map", () => {
+  it("distinguishes official cyan stations from warm high-power stations", () => {
     const normal = officialStationStyle(22);
     const highPower = officialStationStyle(150);
     const statewideNormal = officialStationStyle(22, 7);
@@ -71,9 +77,9 @@ describe("map presentation", () => {
     expect(normal.radius).toBeGreaterThanOrEqual(2.7);
     expect(normal.radius).toBeLessThanOrEqual(3.2);
     expect(normal.fillOpacity).toBeGreaterThanOrEqual(0.9);
-    expect(normal.fillColor).toBe("#ec4899");
+    expect(normal.fillColor).toBe("#22d3ee");
     expect(highPower.radius).toBeGreaterThan(normal.radius);
-    expect(highPower.fillColor).toBe("#f472b6");
+    expect(highPower.fillColor).toBe("#fbbf24");
     expect(highPower.radius).toBeLessThanOrEqual(4.2);
     expect(highPower.weight).toBeGreaterThanOrEqual(0.8);
     expect(statewideNormal.radius).toBeLessThan(2);
