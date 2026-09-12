@@ -25,6 +25,8 @@ describe("dashboard information architecture", () => {
     expect(html).toContain('id="map-add-station"');
     expect(html).toContain("Add proposed station");
     expect(html).toContain('id="scenario-max-point-power"');
+    expect(html).toContain('id="scenario-latitude"');
+    expect(html).toContain('id="scenario-longitude"');
     expect(html).toContain("Maximum point power");
     expect(html).toContain("Clear this browser's proposals");
   });
@@ -78,8 +80,16 @@ describe("dashboard information architecture", () => {
     expect(html).toContain('renewableAssetsLayer: "nrw:nrw_renewable_potential"');
     expect(mainSource).toContain("data/nrw_renewable_assets_sample.geojson");
     expect(mainSource).toContain('"Solar farms and wind energy": renewableAssetLayer');
+    expect(mainSource).toContain('}).addTo(map);');
     expect(mainSource).toContain("Installed capacity:");
     expect(mainSource).toContain("<strong>Operator:</strong>");
+  });
+
+  it("keeps a working catalogue listing route and observable basemap fallback", () => {
+    expect(html).toContain('href="http://localhost:8000/datasets"');
+    expect(mainSource).toContain('"Vector-only fallback": vectorFallback');
+    expect(mainSource).toContain('osm.on("tileerror", activateBasemapFallback)');
+    expect(mainSource).toContain("event.detail === 0");
   });
 
   it("explains every composite indicator and its weights", () => {

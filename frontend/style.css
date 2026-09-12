@@ -206,6 +206,16 @@ button:hover { background:#14324b; border-color:#65b3ff; }
 .leaflet-control-layers,.leaflet-popup-content-wrapper,.leaflet-popup-tip,.leaflet-tooltip,.renewable-legend {
   background:#0c1c2b; color:#e7eef6; border-color:#476078;
 }
+/* Leaflet's production stylesheet can load after the app bundle. Scope popup
+   surfaces through the map container so its white fallback cannot leave the
+   neon heading on a white card. */
+.leaflet-container .leaflet-popup-content-wrapper,
+.leaflet-container .leaflet-popup-tip {
+  background:#0c1c2b;
+  color:#e7eef6;
+}
+.leaflet-container .station-popup { color:#e7eef6; }
+.leaflet-container .station-popup h3 { color:#9be7ff; }
 .leaflet-bar a { background:#0c1c2b; color:#e7eef6; border-color:#476078; }
 .leaflet-bar a:hover { background:#14324b; color:white; }
 .leaflet-control-attribution { background:#0c1c2bee !important; color:#a4b6c8; }
@@ -397,6 +407,13 @@ body { background:#0b1017; }
 .layer-key #overlay-legend { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 20px; font-size:12px; }
 .layer-key #overlay-legend small { grid-column:1/-1; }
 @media(max-width:600px) { .map-key { padding:14px; } .layer-key #overlay-legend { grid-template-columns:1fr; } }
+
+/* Keep Leaflet's expanded SVG and verbose district evidence inside a narrow viewport. */
+.map-shell { overflow:hidden; }
+.detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.detail-metric { min-width:0; overflow-wrap:anywhere; }
+#map.map-basemap-unavailable { background:linear-gradient(145deg,#0d263b,#101827); }
+@media(max-width:760px) { .detail-grid { grid-template-columns:1fr; } }
 
 /* Restrained neon title and score chips tied to the active map scale. */
 .neon-title { color:#b8efff; font-size:clamp(26px,3vw,38px); font-weight:650; letter-spacing:-.035em; text-shadow:0 0 10px #46baff66,0 0 28px #2389e53d; }
