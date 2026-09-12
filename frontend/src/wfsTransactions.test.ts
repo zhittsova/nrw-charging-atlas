@@ -120,13 +120,14 @@ describe("WFS-T transaction response parsing", () => {
       </ows:ExceptionReport>
     `);
 
-    expect(result).toEqual({ ok: false, error: "Write access denied" });
+    expect(result).toEqual({ ok: false, error: "Write access denied", errorKind: "exception" });
   });
 
   it("rejects an unrecognized response", () => {
     expect(parseTransactionResponse("<html>proxy error</html>")).toEqual({
       ok: false,
-      error: "GeoServer returned an unrecognized transaction response"
+      error: "GeoServer returned an unrecognized transaction response",
+      errorKind: "unrecognized"
     });
   });
 });

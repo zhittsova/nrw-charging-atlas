@@ -276,11 +276,10 @@ export function scoreColor(
     if (improvement > -10) return "#c026d3";
     return "#be123c";
   }
-  if (score >= 80) return "#084594";
-  if (score >= 65) return "#2171b5";
-  if (score >= 50) return "#6baed6";
-  if (score >= 35) return "#bdd7e7";
-  return "#eff3ff";
+  return interpolateScoreRamp(score, [
+    [0, [242, 247, 255]], [25, [184, 217, 255]], [50, [67, 153, 244]],
+    [75, [89, 53, 194]], [100, [71, 12, 117]]
+  ]);
 }
 
 export function officialStationStyle(maxPointPowerKw: number | null, zoom = 9) {
@@ -299,4 +298,28 @@ export function officialStationStyle(maxPointPowerKw: number | null, zoom = 9) {
 export function operatorTooltip(operator: string | undefined): string {
   const label = operator?.trim() || "Operator not specified";
   return `<strong>${escapeHtml(label)}</strong><span>Charging-station operator</span>`;
+}
+
+/** Continuous score ramp shared by district fills and the visible legend. */
+export function illuminatedScoreColor(score: number, mode: MapScenarioMode, metric: MapScoreMetric): string {
+  if (mode === "change") return scoreColor(score, mode, metric);
+  const stops: [number, number[]][] = [
+    [0, [8, 26, 59]], [35, [22, 74, 120]], [50, [88, 124, 131]],
+    [65, [196, 155, 69]], [80, [255, 211, 51]], [100, [255, 243, 107]]
+  ];
+  return interpolateScoreRamp(score, stops);
+}
+
+function interpolateScoreRamp(score: number, stops: [number, number[]][]): string {
+  const bounded = Math.max(0, Math.min(100, score));
+  for (let index = 1; index < stops.length; index += 1) {
+    const [end, to] = stops[index];
+    const [start, from] = stops[index - 1];
+    if (bounded <= end) {
+      const fraction = (bounded - start) / (end - start);
+      return "#" + from.map((channel, i) => Math.round(channel + (to[i] - channel) * fraction)
+        .toString(16).padStart(2, "0")).join("");
+    }
+  }
+  return "#" + stops[stops.length - 1][1].map((channel) => channel.toString(16).padStart(2, "0")).join("");
 }

@@ -18,6 +18,10 @@ export type WfsFeatureType = {
 export type WfsTransactionResult = {
   ok: boolean;
   error?: string;
+  // A server-declared WFS exception proves that the transaction was rejected.
+  // An unrecognized body, including an HTML gateway page with HTTP 200, does
+  // not prove whether the server committed the transaction before responding.
+  errorKind?: "exception" | "unrecognized";
   insertedFeatureId?: string;
   insertedFeatureIds?: string[];
   totalInserted?: number;
@@ -173,7 +177,11 @@ export function parseTransactionResponse(xml: string): WfsTransactionResult {
   const exception = firstTagText(xml, "ExceptionText")
     ?? firstTagText(xml, "ServiceException");
   if (exception || /<(?:[A-Za-z_][\w.-]*:)?(?:ExceptionReport|ServiceExceptionReport)\b/i.test(xml)) {
-    return { ok: false, error: exception || "GeoServer rejected the transaction" };
+    return {
+      ok: false,
+      error: exception || "GeoServer rejected the transaction",
+      errorKind: "exception"
+    };
   }
 
   const featureIds = [...xml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?FeatureId\b[^>]*\bfid=["']([^"']+)["']/ig)]
@@ -189,7 +197,8 @@ export function parseTransactionResponse(xml: string): WfsTransactionResult {
   if (!isSuccess) {
     return {
       ok: false,
-      error: "GeoServer returned an unrecognized transaction response"
+      error: "GeoServer returned an unrecognized transaction response",
+      errorKind: "unrecognized"
     };
   }
 

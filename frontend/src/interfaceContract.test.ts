@@ -112,7 +112,8 @@ describe("dashboard information architecture", () => {
     ]) {
       expect(html).toContain(`id="${id}"`);
     }
-    expect(mainSource).toContain("Largest charging-gap change");
+    expect(mainSource).toContain("Highest charging-gap change");
+    expect(mainSource).toContain("Highest signed change; increases, then unchanged values, then decreases.");
     expect(mainSource).toContain("This is a change view, not a site recommendation.");
     expect(mainSource).toContain("Scenario priority rank");
     expect(html).toContain('id="kpi-total-stations-note"');
