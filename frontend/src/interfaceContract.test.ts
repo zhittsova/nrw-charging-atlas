@@ -141,6 +141,9 @@ describe("dashboard information architecture", () => {
     ]) {
       expect(html).toContain(source);
     }
-    expect(html).toContain("data/raw/provenance/");
+    expect(html).toContain("© EuroGeographics for the administrative boundaries.");
+    expect(html).toContain("data/runtime/current/manifest.json");
+    expect(mainSource).toContain("© EuroGeographics for the administrative boundaries");
+    expect(mainSource).toContain("map.attributionControl.addAttribution");
   });
 });

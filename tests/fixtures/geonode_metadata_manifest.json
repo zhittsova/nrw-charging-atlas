@@ -1,0 +1,10 @@
+{
+  "ingest_run_id": "test-ingest-run",
+  "formula_version": "test-formula-v1",
+  "ingested_source_provenance": [
+    {"source_key": "bnetza_ladesaeulenregister", "sha256": "test-sha", "provenance": null}
+  ],
+  "database_source_snapshots": [
+    {"source_key": "bnetza_ladesaeulenregister", "snapshot_date": "2026-04-22", "source_note": "fixture snapshot", "recorded_at": "2026-09-10T00:00:00+00:00"}
+  ]
+}
