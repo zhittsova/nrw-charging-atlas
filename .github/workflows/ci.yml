@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_full_stack:
+        description: Run the opt-in full-stack verifier on a prepared self-hosted runner
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python unit and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.10"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install locked Python dependencies
+        run: uv sync --frozen --all-groups
+      - name: Lint
+        run: uv run ruff check .
+      - name: Unit tests
+        run: uv run pytest -q tests --ignore=tests/integration
+
+  frontend:
+    name: Frontend test and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Frontend tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  postgis:
+    name: Disposable PostGIS integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.10"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install locked Python dependencies
+        run: uv sync --frozen --all-groups
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - name: Run disposable PostGIS integration tests
+        run: uv run python -m scripts.run_postgis_tests
+
+  full-stack:
+    name: Opt-in full-stack verification
+    if: github.event_name == 'workflow_dispatch' && inputs.run_full_stack
+    runs-on: [self-hosted, nrw-full-stack]
+    env:
+      # This is a persistent deployment-state directory, never an Actions
+      # workspace. actions/checkout may clean its source checkout safely.
+      NRW_FULL_STACK_STATE_DIR: /opt/nrw-full-stack/deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.10"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install locked Python dependencies
+        run: uv sync --frozen --all-groups
+      - name: Verify the prepared local stack
+        env:
+          GEONODE_INTEGRATION: "1"
+        run: >-
+          uv run python -m scripts.run_full_stack_checks --enabled
+          --geonode-env-file "$NRW_FULL_STACK_STATE_DIR/geonode/.env"
+          --runtime-root "$NRW_FULL_STACK_STATE_DIR/data/runtime"
+          --deployment-revision-file "$NRW_FULL_STACK_STATE_DIR/revision"
+          --expected-revision "$GITHUB_SHA"

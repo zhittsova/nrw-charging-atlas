@@ -10,7 +10,7 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from publish_geonode_seed import (  # noqa: E402
-    ENV_PATH,
+    ENV_PATH as DEFAULT_ENV_PATH,
     GEONODE_URL,
     GEOSERVER_URL,
     find_resource,
@@ -19,6 +19,11 @@ from publish_geonode_seed import (  # noqa: E402
 )
 
 import requests  # noqa: E402
+
+
+# Full-stack CI supplies this explicit preserved-state path.  Normal local
+# stack checks retain the established checkout-local default.
+ENV_PATH = Path(os.environ.get("GEONODE_ENV_FILE", str(DEFAULT_ENV_PATH)))
 
 
 @unittest.skipUnless(
