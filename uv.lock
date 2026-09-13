@@ -151,7 +151,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nrw-energy-infrastructure-intelligence"
+name = "nrw-charging-atlas"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
