@@ -30,10 +30,10 @@ DISTRICT = "DEA11"
 LONGITUDE, LATITUDE = 6.7735, 51.2277
 CHARGING_POINTS, POWER_KW, MAX_POINT_POWER_KW = 4, 150, 150
 WORKSPACE, NAMESPACE_URI, DISTRICT_COUNT = "nrw", "https://nrw.local/scenario", 53
-RUN_PREFIX = "S18 E2E verifier"
+RUN_PREFIX = "NRW E2E verifier"
 RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "data" / "runtime"
 
-# S02 A11: this is deliberately the frontend's canonical district contract,
+# This is deliberately the frontend's canonical district contract,
 # not a reduced list of fields convenient to the verifier.
 DISTRICT_DETAIL_PROPERTIES = frozenset({
     "nuts_code", "district_name", "chargers_total", "charging_points_total", "fast_chargers_total",

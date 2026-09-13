@@ -148,7 +148,7 @@ def validate_consumed_format(path: Path, *, dataset_id: str = "input") -> None:
     """Reject obvious transport/error documents before replacing raw inputs.
 
     This is deliberately structural rather than a second ETL implementation;
-    the S09 import validators remain responsible for domain semantics.
+    the import validators remain responsible for domain semantics.
     """
     format_path = path.with_suffix("") if path.suffix == ".part" else path
     suffixes = "".join(format_path.suffixes).lower()

@@ -1,10 +1,7 @@
-"""Execute the SQL verification modules against a full 53-district fixture.
+"""Execute both SQL verification modules against a full 53-district fixture.
 
-S07 changed what the modules assert but only checked their source text. These
-tests run `db/verify_nrw_analytics.sql` and `db/verify_nrw_energy_balance.sql`
-for real, including a district whose consumption is a measured zero, and prove
-that contradictory quality metadata is actually rejected rather than merely
-described. Wiring the modules into the pipeline remains S18's work.
+The fixture includes a district whose consumption is a measured zero and
+contradictory quality metadata that each module must reject.
 """
 
 from __future__ import annotations

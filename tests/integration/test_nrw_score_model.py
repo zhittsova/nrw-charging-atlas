@@ -309,7 +309,7 @@ class ScoreModelTest(unittest.TestCase):
                 )
 
     def test_asset_and_municipal_workbook_capacity_stay_distinct(self) -> None:
-        """S08-R01: capacity quality may only describe the workbook value."""
+        """Capacity quality may only describe the workbook value."""
         def capacity_row() -> dict:
             return self.rows(
                 "SELECT operating_asset_renewable_capacity_mw, "

@@ -79,7 +79,7 @@ TRAFFIC_ROWS: tuple[TrafficRow, ...] = (
         expected_light=100.0,
         expected_heavy=0.0,
         description=(
-            "S07-R04 counterexample: total and light traffic are positive, so "
+            "Traffic class-zero counterexample: total and light traffic are positive, so "
             "the row is clearly published, and a heavy-vehicle count of zero "
             "is a real measurement that must not be erased to unknown."
         ),

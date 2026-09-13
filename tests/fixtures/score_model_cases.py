@@ -1,4 +1,4 @@
-"""Independent S08 expectation catalogue for the canonical SQL score model.
+"""Independent expectation catalogue for the canonical SQL score model.
 
 This module is the independent expectation catalogue for the district
 scoring model implemented in the project's canonical analytics SQL
@@ -8,7 +8,7 @@ indicators, and the ``RANK() OVER (... DESC NULLS LAST)`` used to rank
 districts by investment priority.
 
 Every helper and every literal expected value here was derived from the
-written S08 contract -- percentile_cont semantics, the normalize-then-clip
+written score contract -- percentile_cont semantics, the normalize-then-clip
 formula, the "publish rounded, then compose from the rounded values"
 rounding rule, PostgreSQL's half-away-from-zero ``numeric`` rounding, and
 the null-propagation rule that weights are never redistributed -- and
@@ -532,7 +532,7 @@ COMPOSITE_CASES: tuple[CompositeCase, ...] = (
         None,
         "A composite-of-composites propagates None just like a leaf composite.",
     ),
-    # -- rounded-components vs raw-components: the S08 rule changes the answer --
+    # -- rounded-components vs raw-components: the rounded-component rule changes the answer --
     CompositeCase(
         "ev_readiness_rounded_vs_unrounded_composition",
         "ev_readiness_score",

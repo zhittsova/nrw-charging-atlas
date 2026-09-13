@@ -89,7 +89,7 @@ VOLTAGE_CASES: tuple[VoltageCase, ...] = (
         tag="-110000",
         expected_kv=None,
         description=(
-            "A sign-stripping parser wrongly reads this as 110 kV (S07-R03); "
+            "A sign-stripping parser wrongly reads this as 110 kV; "
             "a negative value is not a measured voltage and yields no evidence."
         ),
     ),
