@@ -8,14 +8,22 @@ or deletes features carrying that UUID.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 from uuid import uuid4
 from xml.sax.saxutils import escape
 
 import requests
+
+try:
+    from export_nrw_runtime import ARTIFACTS, DISPLAY_RENEWABLE_TECHNOLOGIES, validate_collection
+except ModuleNotFoundError:
+    from scripts.export_nrw_runtime import ARTIFACTS, DISPLAY_RENEWABLE_TECHNOLOGIES, validate_collection
 
 
 DISTRICT = "DEA11"
@@ -23,6 +31,7 @@ LONGITUDE, LATITUDE = 6.7735, 51.2277
 CHARGING_POINTS, POWER_KW, MAX_POINT_POWER_KW = 4, 150, 150
 WORKSPACE, NAMESPACE_URI, DISTRICT_COUNT = "nrw", "https://nrw.local/scenario", 53
 RUN_PREFIX = "S18 E2E verifier"
+RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "data" / "runtime"
 
 # S02 A11: this is deliberately the frontend's canonical district contract,
 # not a reduced list of fields convenient to the verifier.
@@ -373,10 +382,55 @@ def verify_wfs_contract(session: requests.Session, wfs_url: str) -> None:
             validate_feature(layer, feature, contract)
             if layer == "nrw_chargers":
                 validate_charger_feature(feature)
-            if layer == "nrw_renewable_potential":
-                p = feature["properties"]
-                if p.get("technology") not in {"Windenergie", "Photovoltaik Freifläche"} or p.get("status") != "In Betrieb":
-                    raise RuntimeError("Renewable display sample includes an excluded technology or non-operating asset")
+
+
+def verify_runtime_display_snapshot(runtime_root: Path) -> None:
+    """Check the dashboard-only renewable filter without shrinking the WFS catalogue."""
+    current = runtime_root / "current"
+    manifest_path = current / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Runtime display manifest is unavailable: {manifest_path}") from error
+    if not isinstance(manifest, dict):
+        raise RuntimeError("Runtime display manifest is not an object")
+
+    display_filter = manifest.get("renewable_display_filter")
+    if not isinstance(display_filter, dict) or display_filter.get("status") != "In Betrieb":
+        raise RuntimeError("Runtime display manifest has no operating-renewable filter")
+    technologies = display_filter.get("technologies")
+    if (
+        not isinstance(technologies, list)
+        or not all(isinstance(technology, str) for technology in technologies)
+        or set(technologies) != DISPLAY_RENEWABLE_TECHNOLOGIES
+    ):
+        raise RuntimeError("Runtime display manifest has the wrong renewable technology filter")
+
+    artifacts = manifest.get("artifacts")
+    renewable = artifacts.get("renewables") if isinstance(artifacts, dict) else None
+    expected_filename = ARTIFACTS["renewables"][0]
+    if not isinstance(renewable, dict) or renewable.get("file") != expected_filename:
+        raise RuntimeError("Runtime display manifest has no renewable artifact")
+    expected_hash, expected_count = renewable.get("sha256"), renewable.get("count")
+    if (
+        not isinstance(expected_hash, str)
+        or len(expected_hash) != 64
+        or type(expected_count) is not int
+    ):
+        raise RuntimeError("Runtime display manifest has an invalid renewable artifact record")
+    try:
+        content = (current / expected_filename).read_bytes()
+        collection = json.loads(content)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("Runtime renewable display artifact is unreadable") from error
+    if hashlib.sha256(content).hexdigest() != expected_hash:
+        raise RuntimeError("Runtime renewable display artifact does not match its manifest")
+    try:
+        validate_collection("renewables", collection)
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
+    if len(collection["features"]) != expected_count:
+        raise RuntimeError("Runtime renewable display artifact count does not match its manifest")
 
 
 def district_metrics(session: requests.Session, wfs_url: str) -> dict:
@@ -530,11 +584,19 @@ def verify_catalog(session: requests.Session, geonode_url: str) -> None:
         raise RuntimeError(f"GeoNode catalog is missing project layers: {', '.join(missing)}")
 
 
-def verify(session: requests.Session, *, frontend_url: str, geonode_url: str) -> None:
+def verify(
+    session: requests.Session,
+    *,
+    frontend_url: str,
+    geonode_url: str,
+    runtime_root: Path | None = None,
+) -> None:
     frontend = session.get(frontend_url, timeout=30)
     frontend.raise_for_status()
     wfs_url = f"{frontend_url.rstrip('/')}/geoserver/ows"
     verify_wfs_contract(session, wfs_url)
+    if runtime_root is not None:
+        verify_runtime_display_snapshot(runtime_root)
     verify_catalog(session, geonode_url)
     before, request_id = district_metrics(session, wfs_url), str(uuid4())
     name = f"{RUN_PREFIX} {request_id}"
@@ -557,8 +619,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Verify the local GeoNode scenario workflow end to end")
     parser.add_argument("--frontend-url", default="http://localhost:8081")
     parser.add_argument("--geonode-url", default="http://localhost:8000")
+    parser.add_argument("--runtime-root", type=Path, default=RUNTIME_ROOT)
     args = parser.parse_args()
-    verify(requests.Session(), frontend_url=args.frontend_url, geonode_url=args.geonode_url)
+    verify(
+        requests.Session(),
+        frontend_url=args.frontend_url,
+        geonode_url=args.geonode_url,
+        runtime_root=args.runtime_root,
+    )
     print("End-to-end verification passed; owned temporary proposals were removed")
 
 

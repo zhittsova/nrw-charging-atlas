@@ -49,6 +49,26 @@ The first command is the isolated unit suite; the second creates and removes
 its own disposable PostGIS resources. See [testing](docs/testing.md) for
 optional running-stack checks and failure/skip behavior.
 
+## Backup and isolated restore
+
+Create a restricted local backup outside Git, then restore it only into a fresh
+`nrw-restore-*` Compose target. The drill checks database/catalog/layer and
+scenario behavior against that isolated copy, then removes only the drill's
+target containers, volumes, and private restore workspace.
+
+```bash
+uv run python -m scripts.backup_restore backup
+uv run python -m scripts.backup_restore drill
+```
+
+Backups are created under ignored `backups/` with owner-only permissions. They
+contain database dumps, GeoServer configuration, media/static state, required
+local configuration, and runtime/source manifests; do not copy them to Git or
+spec evidence. The operator owns retention: retain at least one recently
+verified backup, test restoration before deleting an older known-good backup,
+and handle the files as credentials. See [local setup](docs/local_setup.md)
+for restore and safety details.
+
 ## Reference
 
 - [Architecture](docs/architecture.md)

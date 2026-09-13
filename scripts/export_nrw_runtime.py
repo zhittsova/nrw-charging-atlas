@@ -20,7 +20,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from config_utils import ROOT
+try:
+    from config_utils import ROOT
+except ModuleNotFoundError:
+    from scripts.config_utils import ROOT
 
 
 RUNTIME_ROOT = ROOT / "data" / "runtime"
