@@ -12,7 +12,6 @@ dependencies = [
   "requests>=2.31",
   # Used directly by scripts/nrw_charger_quality.py for GEOS topology validation.
   "shapely>=2.0",
-  "streamlit>=1.36",
 ]
 
 

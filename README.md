@@ -78,3 +78,11 @@ for restore and safety details.
 - [Local setup](docs/local_setup.md)
 - [Data sources](docs/data_sources.md)
 - [Data directory](data/README.md)
+- [Professor demonstration and operational handover](docs/operational_handover.md)
+
+## Licence status
+
+Project-owned code has **no public licence grant**. Do not assume permission
+to reuse it outside this local course/project context. Source-data terms,
+attribution, and upstream notices remain separate obligations; see
+[data sources](docs/data_sources.md).
