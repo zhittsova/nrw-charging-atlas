@@ -6,8 +6,15 @@ import { projectScenarioProperties, type ScenarioViewMode } from "./scenarioStat
 import {
   AUTOBAHN_STYLE,
   REGIONAL_ROAD_STYLE,
+  RENEWABLE_LEGEND_ITEMS,
+  isDisplayedRenewableTechnology,
   officialStationStyle,
   operatorTooltip,
+  renewableAssetStyle,
+  renewableTechnologyLabel,
+  selectAutobahnFeaturesForZoom,
+  selectOfficialStationsForZoom,
+  selectRenewableFeaturesForZoom,
   scoreColor as presentationScoreColor
 } from "./mapPresentation";
 
@@ -65,6 +72,7 @@ type StationProperties = {
   region?: string;
   state?: string;
   power_kw?: number;
+  max_point_power_kw?: number;
   charging_points?: number;
   connectors?: number;
   status?: string;
@@ -82,6 +90,17 @@ type RoadProperties = {
   [key: string]: unknown;
 };
 
+type RenewableProperties = {
+  source_id?: string;
+  name?: string;
+  operator?: string;
+  asset_type?: string;
+  technology?: string;
+  capacity_mw?: number;
+  status?: string;
+  [key: string]: unknown;
+};
+
 type Feature<T> = GeoJSON.Feature<GeoJSON.Geometry, T>;
 type FeatureCollection<T> = GeoJSON.FeatureCollection<GeoJSON.Geometry, T>;
 
@@ -94,6 +113,7 @@ type RuntimeConfig = {
   proposedChargersLayer: string;
   autobahnsLayer: string;
   regionalRoadsLayer: string;
+  renewableAssetsLayer: string;
   scenarioFeaturePrefix: string;
   scenarioNamespaceUri: string;
 };
@@ -107,12 +127,13 @@ const NRW_BOUNDS: L.LatLngBoundsExpression = [
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   geonodeBaseUrl: "http://localhost:8000",
   geoserverBaseUrl: "",
-  geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
-  geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
+  geonodeStationsLayer: "nrw:nrw_chargers",
+  geonodeRegionsLayer: "nrw:nrw_ev_baseline_metrics",
   scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
   proposedChargersLayer: "nrw:proposed_chargers",
   autobahnsLayer: "nrw:nrw_autobahns",
   regionalRoadsLayer: "nrw:nrw_regional_roads",
+  renewableAssetsLayer: "nrw:nrw_renewable_potential",
   scenarioFeaturePrefix: "nrw",
   scenarioNamespaceUri: "https://nrw.local/scenario"
 };
@@ -153,42 +174,41 @@ let scenarioViewMode: ScenarioViewMode = "baseline";
 let regionFeatures: Feature<RegionProperties>[] = [];
 let scenarioMetricFeatures: Feature<RegionProperties>[] = [];
 let officialStations: FeatureCollection<StationProperties> = { type: "FeatureCollection", features: [] };
+let autobahnFeatures: FeatureCollection<RoadProperties> = { type: "FeatureCollection", features: [] };
+let renewableAssets: FeatureCollection<RenewableProperties> = { type: "FeatureCollection", features: [] };
 let proposedStations: FeatureCollection<StationProperties> = { type: "FeatureCollection", features: [] };
 let selectedRegionId: string | null = null;
 let selectedLayer: L.Layer | null = null;
 let pendingLocation: L.LatLng | null = null;
 let awaitingMapClick = false;
 
-const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView(NRW_CENTER, 7);
+const map = L.map("map", { preferCanvas: true, zoomControl: true, scrollWheelZoom: false }).setView(NRW_CENTER, 7);
 map.createPane("regions");
 map.createPane("regionalRoads");
 map.createPane("autobahnCasing");
 map.createPane("autobahns");
+map.createPane("renewableAssets");
 map.createPane("stations");
 map.createPane("proposedStations");
 map.getPane("regions")!.style.zIndex = "400";
 map.getPane("regionalRoads")!.style.zIndex = "430";
 map.getPane("autobahnCasing")!.style.zIndex = "439";
 map.getPane("autobahns")!.style.zIndex = "440";
+map.getPane("renewableAssets")!.style.zIndex = "460";
 map.getPane("stations")!.style.zIndex = "470";
 map.getPane("proposedStations")!.style.zIndex = "490";
 
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: "&copy; OpenStreetMap"
-});
-
-const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  maxZoom: 20,
-  attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+  attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
 
 const stationLayer = L.geoJSON(undefined, {
   pane: "stations",
   pointToLayer: (feature, latlng) => {
     const p = feature.properties as StationProperties;
-    const power = numericValue(p, ["power_kw"], 22);
-    return L.circleMarker(latlng, officialStationStyle(power, map.getZoom()));
+    const maxPointPower = numericValue(p, ["max_point_power_kw"], 0);
+    return L.circleMarker(latlng, officialStationStyle(maxPointPower, map.getZoom()));
   },
   onEachFeature: (feature, layer) => {
     const p = feature.properties as StationProperties;
@@ -211,16 +231,14 @@ const stationLayer = L.geoJSON(undefined, {
   }
 }).addTo(map);
 
-function refreshOfficialStationStyles(): void {
-  stationLayer.eachLayer((layer) => {
-    const marker = layer as L.CircleMarker & { feature?: Feature<StationProperties> };
-    if (!marker.setStyle) return;
-    const power = numericValue(marker.feature?.properties ?? {}, ["power_kw"], 22);
-    marker.setStyle(officialStationStyle(power, map.getZoom()));
-  });
+function refreshOfficialStations(): void {
+  const visibleStations = selectOfficialStationsForZoom(officialStations.features, map.getZoom());
+  stationLayer.clearLayers();
+  stationLayer.addData({
+    type: "FeatureCollection",
+    features: visibleStations
+  } as FeatureCollection<StationProperties>);
 }
-
-map.on("zoomend", refreshOfficialStationStyles);
 
 const regionalRoadLayer = L.geoJSON(undefined, {
   pane: "regionalRoads",
@@ -239,7 +257,7 @@ const regionalRoadLayer = L.geoJSON(undefined, {
 
 const autobahnCasingLayer = L.geoJSON(undefined, {
   pane: "autobahnCasing",
-  style: { color: "#fff1f2", weight: AUTOBAHN_STYLE.weight + 2.2, opacity: 0.72 }
+  style: { color: "#fff1f2", weight: AUTOBAHN_STYLE.weight + 1.4, opacity: 0.68 }
 });
 
 const autobahnLineLayer = L.geoJSON(undefined, {
@@ -257,14 +275,80 @@ const autobahnLineLayer = L.geoJSON(undefined, {
 
 const autobahnLayer = L.layerGroup([autobahnCasingLayer, autobahnLineLayer]).addTo(map);
 
+const renewableAssetLayer = L.geoJSON(undefined, {
+  pane: "renewableAssets",
+  pointToLayer: (feature, latlng) => {
+    const properties = feature.properties as RenewableProperties;
+    return L.circleMarker(
+      latlng,
+      renewableAssetStyle(properties.technology, numericValue(properties, ["capacity_mw"], 0), map.getZoom())
+    );
+  },
+  onEachFeature: (feature, layer) => {
+    const properties = feature.properties as RenewableProperties;
+    const technology = renewableTechnologyLabel(properties.technology);
+    const capacity = numericValue(properties, ["capacity_mw"], 0);
+    const operator = textValue(properties, ["operator"], "").trim();
+    const operatorDetail = operator ? ` · ${escapeHtml(operator)}` : "";
+    layer.bindTooltip(
+      `<strong>${escapeHtml(technology)}</strong><span>${formatNumber(capacity)} MW${operatorDetail}</span>`,
+      { className: "renewable-tooltip", direction: "top", sticky: true }
+    );
+    layer.bindPopup(`
+      <div class="station-popup renewable-popup">
+        <h3>${escapeHtml(technology)}</h3>
+        <p><strong>Installed capacity:</strong> ${formatNumber(capacity)} MW</p>
+        ${operator ? `<p><strong>Operator:</strong> ${escapeHtml(operator)}</p>` : ""}
+        <p><strong>Status:</strong> ${escapeHtml(textValue(properties, ["status"], "not available"))}</p>
+        <p><strong>Energy carrier:</strong> ${escapeHtml(textValue(properties, ["asset_type"], technology))}</p>
+      </div>
+    `);
+  }
+});
+
+function refreshAutobahns(): void {
+  const visibleAutobahns = selectAutobahnFeaturesForZoom(autobahnFeatures.features, map.getZoom());
+  const visibleCollection = {
+    type: "FeatureCollection",
+    features: visibleAutobahns
+  } as FeatureCollection<RoadProperties>;
+  autobahnCasingLayer.clearLayers();
+  autobahnLineLayer.clearLayers();
+  autobahnCasingLayer.addData(visibleCollection);
+  autobahnLineLayer.addData(visibleCollection);
+}
+
+function refreshRenewableAssets(): void {
+  const activeAssets = renewableAssets.features.filter((feature) => {
+    const status = feature.properties?.status?.trim();
+    return isDisplayedRenewableTechnology(feature.properties?.technology)
+      && (!status || status === "In Betrieb");
+  });
+  const visibleAssets = selectRenewableFeaturesForZoom(activeAssets, map.getZoom());
+  renewableAssetLayer.clearLayers();
+  renewableAssetLayer.addData({
+    type: "FeatureCollection",
+    features: visibleAssets
+  } as FeatureCollection<RenewableProperties>);
+}
+
+function refreshZoomLayers(): void {
+  refreshOfficialStations();
+  refreshAutobahns();
+  refreshRenewableAssets();
+  restoreOverlayOrder();
+}
+
+map.on("zoomend", refreshZoomLayers);
+
 const proposedStationLayer = L.geoJSON(undefined, {
   pane: "proposedStations",
   pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
     pane: "proposedStations",
     radius: 6,
-    color: "#f4f1ff",
+    color: "#fff1f2",
     weight: 1.5,
-    fillColor: "#8b4dff",
+    fillColor: "#db2777",
     fillOpacity: 0.92
   }),
   onEachFeature: (feature, layer) => {
@@ -307,19 +391,36 @@ const regionLayer = L.geoJSON(undefined, {
 L.control
   .layers(
     {
-      "Carto Dark": carto,
       OpenStreetMap: osm
     },
     {
       "Proposed charging stations": proposedStationLayer,
       "Official charging stations": stationLayer,
+      "Solar farms and wind energy": renewableAssetLayer,
       "Autobahns": autobahnLayer,
       "Federal and state roads": regionalRoadLayer,
       "NRW district indicators": regionLayer
     },
-    { collapsed: false }
+    { collapsed: true }
   )
   .addTo(map);
+
+const renewableLegend = new L.Control({ position: "bottomright" });
+renewableLegend.onAdd = () => {
+  const container = L.DomUtil.create("div", "renewable-legend");
+  container.setAttribute("aria-label", "Renewable energy technology legend");
+  container.innerHTML = `<strong>Renewable energy</strong>${RENEWABLE_LEGEND_ITEMS
+    .map(({ label, color }) => `<span><i style="background:${color}"></i>${escapeHtml(label)}</span>`)
+    .join("")}`;
+  L.DomEvent.disableClickPropagation(container);
+  return container;
+};
+
+map.on("overlayadd overlayremove", (event: L.LayersControlEvent) => {
+  if (event.layer !== renewableAssetLayer) return;
+  if (map.hasLayer(renewableAssetLayer)) renewableLegend.addTo(map);
+  else renewableLegend.remove();
+});
 
 function setText(id: string, value: string | number): void {
   const element = document.getElementById(id);
@@ -401,6 +502,7 @@ function geoserverWfsUrl(typeName: string): string {
     version: "2.0.0",
     request: "GetFeature",
     typeNames: typeName,
+    srsName: "EPSG:4326",
     outputFormat: "application/json"
   });
   return `${baseUrl}/geoserver/ows?${query.toString()}`;
@@ -426,6 +528,7 @@ function restoreOverlayOrder(): void {
   regionalRoadLayer.bringToFront();
   autobahnCasingLayer.bringToFront();
   autobahnLineLayer.bringToFront();
+  renewableAssetLayer.bringToFront();
   stationLayer.bringToFront();
   proposedStationLayer.bringToFront();
 }
@@ -458,6 +561,7 @@ function sortedRegions(metric: ScoreMetric): Feature<RegionProperties>[] {
 }
 
 function renderKpis(): void {
+  const isChangeView = scenarioViewMode === "change";
   const readinessScores = regionFeatures.map((feature) => scoreValue(feature.properties, "evReadinessScore"));
   const averageReadiness = readinessScores.reduce((sum, score) => sum + score, 0) / Math.max(1, readinessScores.length);
   const bestReadiness = sortedRegions("evReadinessScore")[0]?.properties;
@@ -469,8 +573,23 @@ function renderKpis(): void {
       ? officialStations.features.length + proposedStations.features.length
       : proposedStations.features.length;
 
+  setText("kpi-total-stations-label", isChangeView ? "Proposed stations" : "Total NRW stations");
+  setText("kpi-average-readiness-label", isChangeView ? "Avg EV readiness change" : "Avg EV readiness");
+  setText("kpi-best-readiness-label", isChangeView ? "Largest readiness change" : "Best EV readiness");
+  setText("kpi-underserved-label", isChangeView ? "Largest charging-gap change" : "Most underserved");
+  setText("kpi-priority-label", isChangeView ? "Largest priority change" : "Highest priority");
+  setText(
+    "kpi-underserved-note",
+    isChangeView ? "Largest absolute change in charging gap." : "Largest charging gap: 100 − EV Readiness."
+  );
+  setText(
+    "kpi-priority-note",
+    isChangeView
+      ? "Largest absolute change in investment priority."
+      : "60% charging gap + 40% infrastructure opportunity."
+  );
   setText("kpi-total-stations", new Intl.NumberFormat("en-US").format(stationTotal));
-  setText("kpi-average-density", scenarioViewMode === "change" ? formatScore(averageReadiness) : `${averageReadiness.toFixed(0)} / 100`);
+  setText("kpi-average-density", isChangeView ? formatScore(averageReadiness) : `${averageReadiness.toFixed(0)} / 100`);
   setText("kpi-best-region", bestReadiness ? regionName(bestReadiness) : "-");
   setText("kpi-underserved-region", underserved ? regionName(underserved) : "-");
   setText("kpi-priority-region", priority ? regionName(priority) : "-");
@@ -493,12 +612,33 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
   const infrastructure = scoreValue(p, "infrastructureOpportunityScore");
   const rank = numericValue(p, ["priorityRank", "priority_rank"], sortedRegions("investmentPriorityScore").findIndex((item) => regionId(item.properties) === regionId(p)) + 1);
   const tier = textValue(p, ["priorityTier", "priority_tier"], "screening");
-  const recommendation =
-    investment >= 70
+  const isChangeView = scenarioViewMode === "change";
+  const recommendation = isChangeView
+    ? "This is a change view, not a site recommendation. Positive EV readiness means a stronger relative charging score; negative deficit or priority means less relative charging need."
+    : investment >= 70
       ? "High screening priority. Charger supply is weak relative to other NRW districts, so this district should be checked first once demand and road layers are joined."
       : readiness >= 70
         ? "Strong EV readiness in the selected view. Use the baseline comparison before changing investment priority."
         : "Medium screening case. Compare the baseline and scenario values before making a planning decision.";
+  const labels = isChangeView
+    ? {
+        stations: "Station change",
+        points: "Charging-point change",
+        fastChargers: "Fast-charger change",
+        readiness: "EV readiness change",
+        deficit: "Charger-deficit change",
+        rank: "Scenario priority rank",
+        infrastructure: "Infrastructure opportunity change"
+      }
+    : {
+        stations: "Stations",
+        points: "Charging points",
+        fastChargers: "Fast chargers",
+        readiness: "EV readiness",
+        deficit: "Charger deficit",
+        rank: "Priority rank",
+        infrastructure: "Infrastructure opportunity"
+      };
 
   const comparison = p.baseline_ev_readiness_score === undefined ? "" : `
     <div class="comparison-grid" aria-label="Baseline and scenario comparison">
@@ -514,16 +654,16 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
     </div>
     <div class="detail-grid">
       <div class="detail-metric"><span>NUTS-3</span><strong>${escapeHtml(textValue(p, ["nuts_code"], "-"))}</strong></div>
-      <div class="detail-metric"><span>Stations</span><strong>${formatNumber(numericValue(p, ["stationCount", "chargers_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>Charging points</span><strong>${formatNumber(numericValue(p, ["charging_points_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>Fast chargers</span><strong>${formatNumber(numericValue(p, ["fast_chargers", "fast_chargers_total"], 0))}</strong></div>
-      <div class="detail-metric"><span>EV readiness</span><strong>${formatScore(readiness)}</strong></div>
-      <div class="detail-metric"><span>Charger deficit</span><strong>${formatScore(deficit)}</strong></div>
-      <div class="detail-metric"><span>Priority rank</span><strong>#${formatNumber(rank)}</strong></div>
-      <div class="detail-metric"><span>Infrastructure opportunity</span><strong>${formatScore(infrastructure)}</strong></div>
+      <div class="detail-metric"><span>${labels.stations}</span><strong>${formatNumber(numericValue(p, ["stationCount", "chargers_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.points}</span><strong>${formatNumber(numericValue(p, ["charging_points_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.fastChargers}</span><strong>${formatNumber(numericValue(p, ["fast_chargers", "fast_chargers_total"], 0))}</strong></div>
+      <div class="detail-metric"><span>${labels.readiness}</span><strong>${formatScore(readiness)}</strong></div>
+      <div class="detail-metric"><span>${labels.deficit}</span><strong>${formatScore(deficit)}</strong></div>
+      <div class="detail-metric"><span>${labels.rank}</span><strong>#${formatNumber(rank)}</strong></div>
+      <div class="detail-metric"><span>${labels.infrastructure}</span><strong>${formatScore(infrastructure)}</strong></div>
     </div>
     ${comparison}
-    <p class="recommendation">${escapeHtml(recommendation)} Current tier: ${escapeHtml(tier)}.</p>
+    <p class="recommendation">${escapeHtml(recommendation)}${isChangeView ? "" : ` Current tier: ${escapeHtml(tier)}.`}</p>
   `;
 }
 
@@ -549,22 +689,40 @@ function selectRegion(feature: Feature<RegionProperties>, layer?: L.Layer): void
 
 function renderRanking(metric: ScoreMetric = activeRanking): void {
   activeRanking = metric;
+  setText("ranking-count", `${regionFeatures.length} districts`);
+  setText("ranking-explanation", scenarioViewMode === "change"
+    ? "Largest absolute changes first. Positive and negative values are changes in score points, not current scores."
+    : "All districts, highest scores first. Scroll to see more; select a district for details.");
+  const legend = document.getElementById("district-legend");
+  if (legend) {
+    const bins: [number, string][] = scenarioViewMode === "change"
+      ? [[-12, "−10 or less"], [-5, "−10 to 0"], [0, "No change"], [5, "0 to +10"], [12, "+10 or more"]]
+      : [[10, "Below 35"], [40, "35–49"], [55, "50–64"], [70, "65–79"], [90, "80–100"]];
+    legend.innerHTML = `<strong>${escapeHtml(scoreLabels[activeScore])}${scenarioViewMode === "change" ? " · change in points" : " · score out of 100"}</strong>`
+      + bins.map(([value, label]) => `<span><i style="background:${scoreColor(value, activeScore)}"></i>${label}</span>`).join("");
+  }
   const list = document.getElementById("ranking-list");
   if (!list) return;
 
   document.querySelectorAll(".ranking-tab").forEach((button) => {
     button.classList.toggle("active", (button as HTMLElement).dataset.ranking === metric);
+    button.setAttribute("aria-pressed", String((button as HTMLElement).dataset.ranking === metric));
   });
 
   list.innerHTML = "";
   sortedRegions(metric)
-    .slice(0, 10)
     .forEach((feature, index) => {
       const p = feature.properties;
       const score = scoreValue(p, metric);
       const width = Math.max(8, Math.min(100, Math.abs(score)));
       const item = document.createElement("li");
       item.className = "ranking-item";
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `${regionName(p)}, ${scoreLabels[metric]} ${formatScore(score)}. Show district.`);
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.click(); }
+      });
       item.innerHTML = `
         <span class="ranking-rank">#${index + 1}</span>
         <span class="ranking-dot"></span>
@@ -728,7 +886,7 @@ map.on("click", (event) => {
 async function boot(): Promise<void> {
   renderRegionDetail(null);
 
-  const [regionsResult, stationsResult] = await Promise.all([
+  const [regionsResult, stationsResult, renewableResult] = await Promise.all([
     loadGeoJsonWithFallback<RegionProperties>(
       geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer),
       "data/nrw_regions_sample.geojson"
@@ -736,6 +894,10 @@ async function boot(): Promise<void> {
     loadGeoJsonWithFallback<StationProperties>(
       geoserverWfsUrl(runtimeConfig.geonodeStationsLayer),
       "data/nrw_charging_stations_sample.geojson"
+    ),
+    loadGeoJsonWithFallback<RenewableProperties>(
+      geoserverWfsUrl(runtimeConfig.renewableAssetsLayer),
+      "data/nrw_renewable_assets_sample.geojson"
     )
   ]);
 
@@ -743,30 +905,36 @@ async function boot(): Promise<void> {
   const stations = stationsResult.data;
 
   const roadResults = await Promise.allSettled([
-    fetchGeoJson<RoadProperties>(geoserverWfsUrl(runtimeConfig.regionalRoadsLayer)),
-    fetchGeoJson<RoadProperties>(geoserverWfsUrl(runtimeConfig.autobahnsLayer))
+    loadGeoJsonWithFallback<RoadProperties>(
+      geoserverWfsUrl(runtimeConfig.regionalRoadsLayer),
+      "data/nrw_regional_roads_sample.geojson"
+    ),
+    loadGeoJsonWithFallback<RoadProperties>(
+      geoserverWfsUrl(runtimeConfig.autobahnsLayer),
+      "data/nrw_autobahns_sample.geojson"
+    )
   ]);
-  if (roadResults[0].status === "fulfilled") regionalRoadLayer.addData(roadResults[0].value);
+  if (roadResults[0].status === "fulfilled") regionalRoadLayer.addData(roadResults[0].value.data);
   if (roadResults[1].status === "fulfilled") {
-    autobahnCasingLayer.addData(roadResults[1].value);
-    autobahnLineLayer.addData(roadResults[1].value);
+    autobahnFeatures = roadResults[1].value.data;
   }
 
   regionFeatures = regions.features as Feature<RegionProperties>[];
   officialStations = stations;
-  stationLayer.addData(officialStations);
+  renewableAssets = renewableResult.data;
+  refreshZoomLayers();
   restoreOverlayOrder();
   renderAnalytics();
   renderProposedStations();
-  const connectedSourceCount = [regionsResult.source, stationsResult.source]
+  const connectedSourceCount = [regionsResult.source, stationsResult.source, renewableResult.source]
     .filter((source) => source.startsWith("GeoNode")).length;
   setHeaderStatus(connectedSourceCount > 0 ? "GeoNode WFS connected" : "Local GeoJSON fallback");
+  setText("data-quality-note", regionsResult.source.startsWith("GeoNode")
+    ? "District data loaded from WFS. Scores are relative screening measures; inspect the methods and district details before drawing conclusions."
+    : "Limited comparison: district data comes from a local snapshot with simplified charger-supply scores. It does not provide the full population, accessibility and infrastructure assessment described above. Use this view to explore the interface, not to decide where to build.");
   const note = document.querySelector(".map-note");
   if (note) {
-    note.textContent =
-      regionsResult.source.startsWith("GeoNode") || stationsResult.source.startsWith("GeoNode")
-        ? "GeoNode-connected map: district indicators, charging stations and available road layers are served from PostGIS through GeoServer WFS."
-        : "Local-first preview: GeoNode is offline, so the dashboard is using the checked-in NRW GeoJSON snapshot.";
+    note.textContent = `Districts: ${regionsResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}; stations: ${stationsResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}; renewables: ${renewableResult.source.startsWith("GeoNode") ? "WFS" : "local snapshot"}. Renewable overlay: operating wind assets and ground-mounted solar farms only; building-mounted solar is hidden. Zoom in to see more locations. This display filter does not change district energy totals.`;
   }
   map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });
   try {
@@ -777,16 +945,30 @@ async function boot(): Promise<void> {
   }
 }
 
-document.getElementById("score-mode")?.addEventListener("change", (event) => {
-  activeScore = (event.target as HTMLSelectElement).value as ScoreMetric;
+function chooseIndicator(metric: ScoreMetric): void {
+  activeScore = metric;
+  (document.getElementById("score-mode") as HTMLSelectElement).value = metric;
+  document.querySelectorAll<HTMLButtonElement>("[data-question]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.question === metric));
+  });
+  const explanations: Record<ScoreMetric, string> = {
+    chargerDeficitScore: "Most underserved means the largest charging gap: 100 − EV Readiness. Readiness considers charging-point density, proximity and charging points relative to population. Check the data notice for calculation limits.",
+    investmentPriorityScore: "Highest priority combines 60% charging deficit with 40% infrastructure opportunity. It can differ from the most underserved district and does not identify a construction-ready site.",
+    evReadinessScore: "Higher EV Readiness means stronger present charging provision relative to other districts. This is not a forecast of future demand.",
+    infrastructureOpportunityScore: "Higher Infrastructure Opportunity means stronger supporting traffic, grid and renewable context. Grid capacity is a proxy, not a confirmed connection offer."
+  };
+  setText("question-explanation", explanations[metric]);
   regionLayer.setStyle((feature) => regionStyle(feature as Feature<RegionProperties>));
-  renderRanking(activeScore);
+  renderRanking(metric);
   const selected = regionFeatures.find((feature) => regionId(feature.properties) === selectedRegionId) ?? null;
   if (selected) renderRegionDetail(selected);
-});
+}
 
-document.querySelectorAll(".ranking-tab").forEach((button) => {
-  button.addEventListener("click", () => renderRanking((button as HTMLElement).dataset.ranking as ScoreMetric));
+document.getElementById("score-mode")?.addEventListener("change", (event) => {
+  chooseIndicator((event.target as HTMLSelectElement).value as ScoreMetric);
+});
+document.querySelectorAll<HTMLButtonElement>(".ranking-tab, [data-question]").forEach((button) => {
+  button.addEventListener("click", () => chooseIndicator((button.dataset.question ?? button.dataset.ranking) as ScoreMetric));
 });
 
 document.querySelectorAll<HTMLElement>("[data-scenario-mode]").forEach((button) => {
@@ -855,9 +1037,10 @@ document.getElementById("scenario-form")?.addEventListener("submit", async (even
 
 boot().catch((error) => {
   console.error(error);
+  setText("data-quality-note", "Data could not be loaded. District comparisons are unavailable; try again when the data service is available.");
   const note = document.querySelector(".map-note");
   if (note) {
     note.textContent =
-      "NRW GeoJSON and GeoNode WFS could not be loaded. Check the local GeoNode stack or run `python3 -m http.server 8000 --directory frontend`.";
+      "Map data is unavailable. Reload the page once the data service is available.";
   }
 });

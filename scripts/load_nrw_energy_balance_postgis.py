@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from config_utils import ROOT
-from load_nrw_postgis import _copy_block, read_admin_regions, run_psql
+from load_nrw_postgis import _copy_block, read_raw_seed_snapshot
 
 
 ENERGY_WORKBOOK = (
@@ -45,6 +46,7 @@ RENEWABLE_COLUMNS = (
     "nuts_code",
     "ags",
     "published_generation_mwh",
+    "generation_components_unknown",
     "wind_capacity_mw",
     "renewable_capacity_mw",
     "renewable_net_addition_mw",
@@ -79,7 +81,15 @@ def build_district_lookup(admin_rows: list[dict]) -> dict[str, str]:
 
 
 def _number(value: object, *, field: str, allow_missing: bool = True) -> float | None:
-    if pd.isna(value):
+    """Return a finite reading, an explicit unknown, or raise.
+
+    ``pd.notna`` is true for both infinities, so it cannot decide finiteness;
+    a non-finite reading is rejected outright rather than being carried into an
+    aggregate (contract C03).
+    """
+    if value is None or (isinstance(value, float) and math.isnan(value)) or (
+        not isinstance(value, (str, bytes)) and pd.isna(value)
+    ):
         if allow_missing:
             return None
         raise ValueError(f"{field} is missing")
@@ -87,8 +97,8 @@ def _number(value: object, *, field: str, allow_missing: bool = True) -> float |
         result = float(value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field} must be numeric") from error
-    if not pd.notna(result):
-        raise ValueError(f"{field} must be finite")
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be finite, not {value!r}")
     return result
 
 
@@ -118,12 +128,55 @@ def _nuts_code(district_name: object, lookup: dict[str, str]) -> str:
         raise ValueError(f"Unmapped NRW district: {district_name}") from error
 
 
-def _sum_columns(row: pd.Series, columns: list[str]) -> float:
+def _sum_columns(row: pd.Series, columns: list[str]) -> float | None:
+    """Sum a technology group, keeping an absent reading distinct from zero.
+
+    A technology column that is simply not present in the sheet is not part of
+    this source's reporting, so it is skipped.  A column that is present but
+    empty for this municipality is an unknown reading: the group total is then
+    unavailable rather than silently smaller (contract C03).
+    """
     total = 0.0
     for column in columns:
+        if column not in row.index:
+            continue
         value = _number(row.get(column), field=column)
-        total += value or 0.0
+        if value is None:
+            return None
+        total += value
     return total
+
+
+def _sum_generation(row: pd.Series, columns: list[str]) -> tuple[float | None, int]:
+    """Sum published yields, separating "no plant" from "yield not published".
+
+    The source writes an explicit 0 in every ``Leistung (MW)`` cell but leaves
+    ``Stromertrag (MWh)`` empty in two different situations.  Where the matching
+    capacity is zero there is no installation and therefore no yield, which is a
+    real zero contribution.  Where capacity is positive the yield exists but was
+    not published, so the municipal total is incomplete and must not be passed
+    off as a measured sum (contract C03).  Returns the total, or ``None`` when
+    any component is unknown, together with the number of unknown components.
+    """
+    total = 0.0
+    unknown = 0
+    for column in columns:
+        if column not in row.index:
+            continue
+        value = _number(row.get(column), field=column)
+        if value is not None:
+            total += value
+            continue
+        capacity_column = column.replace("Stromertrag (MWh)", "Leistung (MW)")
+        capacity = (
+            _number(row.get(capacity_column), field=capacity_column)
+            if capacity_column in row.index
+            else None
+        )
+        if capacity == 0:
+            continue
+        unknown += 1
+    return (None if unknown else total), unknown
 
 
 def prepare_energy_snapshots(
@@ -208,6 +261,9 @@ def prepare_energy_snapshots(
         growth = growth_by_key.get(key)
         identity = stock if stock is not None else growth
         assert identity is not None
+        generation_total, generation_unknown = (
+            _sum_generation(stock, generation_columns) if stock is not None else (None, 0)
+        )
         renewable_rows.append(
             {
                 "year": key[0],
@@ -215,9 +271,8 @@ def prepare_energy_snapshots(
                 "district_name": str(identity["Kreis"]),
                 "nuts_code": _nuts_code(identity["Kreis"], district_lookup),
                 "ags": key[1],
-                "published_generation_mwh": (
-                    _sum_columns(stock, generation_columns) if stock is not None else None
-                ),
+                "published_generation_mwh": generation_total,
+                "generation_components_unknown": generation_unknown,
                 "wind_capacity_mw": (
                     _number(stock.get("Wind: Leistung (MW)"), field="Wind: Leistung (MW)")
                     if stock is not None
@@ -307,7 +362,8 @@ CREATE TEMP TABLE import_energy_consumption (
 ) ON COMMIT DROP;
 CREATE TEMP TABLE import_renewable_balance (
     year integer, municipality_name text, district_name text, nuts_code text, ags text,
-    published_generation_mwh numeric, wind_capacity_mw numeric, renewable_capacity_mw numeric,
+    published_generation_mwh numeric, generation_components_unknown integer,
+    wind_capacity_mw numeric, renewable_capacity_mw numeric,
     renewable_net_addition_mw numeric, source text
 ) ON COMMIT DROP;
 {consumption_copy}{renewable_copy}
@@ -335,6 +391,7 @@ ON CONFLICT (year, ags) DO UPDATE SET
     district_name = EXCLUDED.district_name,
     nuts_code = EXCLUDED.nuts_code,
     published_generation_mwh = EXCLUDED.published_generation_mwh,
+    generation_components_unknown = EXCLUDED.generation_components_unknown,
     wind_capacity_mw = EXCLUDED.wind_capacity_mw,
     renewable_capacity_mw = EXCLUDED.renewable_capacity_mw,
     renewable_net_addition_mw = EXCLUDED.renewable_net_addition_mw,
@@ -345,7 +402,6 @@ WHERE NOT EXISTS (
     WHERE incoming.year = existing.year AND incoming.ags = existing.ags
 );
 
-REFRESH MATERIALIZED VIEW analytics.nrw_local_energy_balance;
 COMMIT;
 """
 
@@ -357,7 +413,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--regions",
         type=Path,
-        default=ROOT / "frontend" / "data" / "nrw_regions_sample.geojson",
+        default=ROOT / "data" / "raw" / "nuts3_regions_gisco_2024.geojson",
     )
     parser.add_argument("--check-only", action="store_true")
     return parser.parse_args()
@@ -365,7 +421,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    lookup = build_district_lookup(read_admin_regions(args.regions))
+    if args.regions == ROOT / "data" / "raw" / "nuts3_regions_gisco_2024.geojson":
+        admin_regions, _, _ = read_raw_seed_snapshot()
+    else:
+        from load_nrw_postgis import read_admin_regions
+
+        admin_regions = read_admin_regions(args.regions)
+    lookup = build_district_lookup(admin_regions)
     consumption, renewables, reporting_year = read_energy_workbook(args.workbook, lookup)
     print(
         f"validated energy snapshot: consumption={len(consumption)}, "
@@ -375,17 +437,10 @@ def main() -> None:
         return
     if not args.database_url:
         raise ValueError("DATABASE_URL or --database-url is required unless --check-only is used")
-    schema_sql = (ROOT / "db" / "nrw_schema.sql").read_text(encoding="utf-8")
-    analytics_sql = (ROOT / "db" / "nrw_analytics.sql").read_text(encoding="utf-8")
-    run_psql(
-        args.database_url,
-        [
-            f"BEGIN;\n{schema_sql}\nCOMMIT;\n",
-            analytics_sql,
-            build_import_script(consumption, renewables, reporting_year),
-        ],
+    raise ValueError(
+        "Individual loaders only validate inputs. Use scripts/refresh_nrw_database.py "
+        "to publish a complete atomic seed."
     )
-    print("loaded NRW municipal energy balance")
 
 
 if __name__ == "__main__":

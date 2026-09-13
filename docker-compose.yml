@@ -1,8 +1,0 @@
-services:
-  frontend:
-    build:
-      context: ./frontend
-    container_name: nrw-energy-intelligence-platform
-    ports:
-      - "8081:80"
-    restart: unless-stopped

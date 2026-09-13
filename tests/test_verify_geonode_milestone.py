@@ -42,7 +42,7 @@ class PersistenceVerificationTest(unittest.TestCase):
         calls: list[str] = []
 
         with (
-            patch.object(module, "verify_seed", side_effect=lambda: calls.append("seed")),
+            patch.object(module, "verify_seed", side_effect=lambda: calls.append("seed") or 53),
             patch.object(
                 module,
                 "restart_without_volume_removal",
@@ -54,10 +54,38 @@ class PersistenceVerificationTest(unittest.TestCase):
                 side_effect=lambda _states: calls.append("health"),
             ),
             patch.object(module, "stack_status", return_value={}),
+            patch.object(module, "print") as output,
         ):
             module.main()
 
         self.assertEqual(calls, ["seed", "restart", "health", "seed"])
+        output.assert_called_once_with("GeoNode milestone verified: catalog and 53 NRW districts persisted")
+
+    def test_main_reports_the_verified_count_instead_of_a_mocked_constant(self) -> None:
+        module = load_module()
+
+        with (
+            patch.object(module, "verify_seed", side_effect=[52, 52]),
+            patch.object(module, "restart_without_volume_removal"),
+            patch.object(module, "assert_core_services"),
+            patch.object(module, "stack_status", return_value={}),
+            patch.object(module, "print") as output,
+        ):
+            module.main()
+
+        output.assert_called_once_with("GeoNode milestone verified: catalog and 52 NRW districts persisted")
+
+    def test_main_rejects_a_changed_seed_count_after_restart(self) -> None:
+        module = load_module()
+
+        with (
+            patch.object(module, "verify_seed", side_effect=[53, 52]),
+            patch.object(module, "restart_without_volume_removal"),
+            patch.object(module, "assert_core_services"),
+            patch.object(module, "stack_status", return_value={}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "seed count changed"):
+                module.main()
 
     def test_main_does_not_restart_when_baseline_seed_check_fails(self) -> None:
         """Catches recreating containers when the initial catalogue/WFS check already fails."""

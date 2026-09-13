@@ -44,6 +44,7 @@ def charger(station_id: str = "station-1") -> dict:
             "charger_type": "Schnellladeeinrichtung",
             "charging_points": 4,
             "power_kw": 150.0,
+            "max_point_power_kw": 150.0,
             "district_text": "Düsseldorf",
             "state": "Nordrhein-Westfalen",
         },
@@ -79,6 +80,7 @@ class SnapshotPreparationTest(unittest.TestCase):
         self.assertEqual(chargers[0]["operator"], "Stadtwerke Düsseldorf")
         self.assertEqual(chargers[0]["charging_points"], 4)
         self.assertEqual(chargers[0]["power_kw"], 150.0)
+        self.assertEqual(chargers[0]["max_point_power_kw"], 150.0)
         self.assertEqual(
             chargers[0]["geom_json"],
             '{"type":"Point","coordinates":[6.78,51.23]}',
@@ -126,7 +128,8 @@ class ImportScriptTest(unittest.TestCase):
         self.assertIn("ON CONFLICT (source_id) DO UPDATE", sql)
         self.assertIn("DELETE FROM raw.admin_regions AS existing", sql)
         self.assertIn("DELETE FROM raw.chargers AS existing", sql)
-        self.assertIn("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics", sql)
+        self.assertNotIn("REFRESH MATERIALIZED VIEW", sql)
+        self.assertIn("max_point_power_kw", sql)
         self.assertTrue(sql.rstrip().endswith("COMMIT;"))
         self.assertIn("Stadtwerke Düsseldorf", sql)
 
@@ -141,6 +144,121 @@ class ImportScriptTest(unittest.TestCase):
                 runner=failing_runner,
             )
 
+    def test_refresh_combines_all_documents_into_one_transaction(self) -> None:
+        schema_sql = "BEGIN;\nSELECT 'schema';\nCOMMIT;\n"
+        import_sql = "BEGIN;\nSELECT 'import';\nCOMMIT;\n"
+        analytics_sql = "BEGIN;\nSELECT 'analytics';\nCOMMIT;\n"
+        submitted: list[str] = []
+
+        def runner(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            submitted.append(str(kwargs["input"]))
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+        loader.run_refresh(
+            "postgresql://example.invalid/nrw",
+            schema_sql=schema_sql,
+            import_sql=import_sql,
+            analytics_sql=analytics_sql,
+            runner=runner,
+        )
+
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(submitted[0].count("BEGIN;"), 1)
+        self.assertEqual(submitted[0].count("COMMIT;"), 1)
+        self.assertIn("SELECT 'schema';", submitted[0])
+        self.assertIn("SELECT 'import';", submitted[0])
+        self.assertIn("SELECT 'analytics';", submitted[0])
+        self.assertLess(
+            submitted[0].index("SELECT 'import';"),
+            submitted[0].index("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;"),
+        )
+        self.assertLess(
+            submitted[0].index("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;"),
+            submitted[0].index("SELECT 'analytics';"),
+        )
+
+    def test_refresh_reports_a_single_transaction_failure(self) -> None:
+        def runner(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess([], 3, stdout="", stderr="analytics failed")
+
+        with self.assertRaisesRegex(RuntimeError, "analytics failed"):
+            loader.run_refresh(
+                "postgresql://example.invalid/nrw",
+                schema_sql="BEGIN;\nSELECT 'schema';\nCOMMIT;\n",
+                import_sql="BEGIN;\nSELECT 'import';\nCOMMIT;\n",
+                analytics_sql="BEGIN;\nSELECT 'analytics';\nCOMMIT;\n",
+                runner=runner,
+            )
+
+
+
+class SourceSnapshotTest(unittest.TestCase):
+    """The register's publication date is provenance, not a per-station field."""
+
+    def _write(self, document: dict) -> Path:
+        directory = tempfile.mkdtemp()
+        path = Path(directory) / "chargers.geojson"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def test_reads_the_snapshot_date_the_generator_recorded(self) -> None:
+        path = self._write(
+            {
+                "type": "FeatureCollection",
+                "source_key": "bnetza_ladesaeulenregister",
+                "source_name": "Bundesnetzagentur Ladesaeulenregister",
+                "snapshot_date": "2026-04-22",
+                "features": [charger()],
+            }
+        )
+
+        self.assertEqual(
+            loader.read_source_snapshot(path),
+            {
+                "source_key": "bnetza_ladesaeulenregister",
+                "snapshot_date": "2026-04-22",
+                "source_name": "Bundesnetzagentur Ladesaeulenregister",
+            },
+        )
+
+    def test_a_missing_snapshot_date_stays_unknown(self) -> None:
+        path = self._write(
+            {"type": "FeatureCollection", "snapshot_date": None, "features": [charger()]}
+        )
+        self.assertIsNone(loader.read_source_snapshot(path))
+
+    def test_an_invalid_snapshot_date_is_rejected_rather_than_ignored(self) -> None:
+        path = self._write(
+            {"type": "FeatureCollection", "snapshot_date": "22.04.2026", "features": [charger()]}
+        )
+        with self.assertRaisesRegex(ValueError, "invalid snapshot_date"):
+            loader.read_source_snapshot(path)
+
+    def test_a_load_without_a_date_clears_the_previous_one(self) -> None:
+        """A stale date attached to fresh data would be worse than none."""
+        sql = loader.build_import_script(
+            [loader.admin_row(region())],
+            [loader.charger_row(charger())],
+            source_snapshot=None,
+        )
+
+        self.assertIn("DELETE FROM raw.source_snapshots", sql)
+        self.assertNotIn("INSERT INTO raw.source_snapshots", sql)
+
+    def test_a_recorded_date_is_upserted_for_its_source_key(self) -> None:
+        sql = loader.build_import_script(
+            [loader.admin_row(region())],
+            [loader.charger_row(charger())],
+            source_snapshot={
+                "source_key": "bnetza_ladesaeulenregister",
+                "snapshot_date": "2026-04-22",
+                "source_name": "Bundesnetzagentur Ladesaeulenregister",
+            },
+        )
+
+        self.assertIn("INSERT INTO raw.source_snapshots", sql)
+        self.assertIn("ON CONFLICT (source_key) DO UPDATE", sql)
+        self.assertIn("2026-04-22", sql)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import html from "../index.html?raw";
+import mainSource from "./main.ts?raw";
 
 
 describe("dashboard information architecture", () => {
@@ -24,8 +25,23 @@ describe("dashboard information architecture", () => {
     expect(html).toContain("Add proposed station");
   });
 
+  it("provides local fallbacks for both road overlays", () => {
+    expect(mainSource).toContain("data/nrw_autobahns_sample.geojson");
+    expect(mainSource).toContain("data/nrw_regional_roads_sample.geojson");
+    expect(mainSource).toContain('"Autobahns": autobahnLayer');
+    expect(mainSource).toContain('"Federal and state roads": regionalRoadLayer');
+  });
+
+  it("provides a renewable-energy overlay with a local fallback", () => {
+    expect(html).toContain('renewableAssetsLayer: "nrw:nrw_renewable_potential"');
+    expect(mainSource).toContain("data/nrw_renewable_assets_sample.geojson");
+    expect(mainSource).toContain('"Solar farms and wind energy": renewableAssetLayer');
+    expect(mainSource).toContain("Installed capacity:");
+    expect(mainSource).toContain("<strong>Operator:</strong>");
+  });
+
   it("explains every composite indicator and its weights", () => {
-    expect(html).toContain("40% Charger Density");
+    expect(html).toContain("40% Charging-point Density");
     expect(html).toContain("30% Charger Accessibility");
     expect(html).toContain("30% Population-adjusted Coverage");
     expect(html).toContain("Charger Deficit = 100 − EV Readiness");
@@ -36,6 +52,27 @@ describe("dashboard information architecture", () => {
     expect(html).toContain("40% Infrastructure Opportunity");
     expect(html).toContain("45% Local Energy Balance");
     expect(html).toContain("30% Renewable Growth");
+  });
+
+  it("distinguishes charging-point supply from station locations in the EV model", () => {
+    expect(html).toContain("Density measures charging points per km²");
+    expect(html).toContain("nearest station: closer scores higher");
+    expect(html).toContain("charging points per 100,000 residents");
+  });
+
+  it("makes change-view KPI and district labels explicit about score changes", () => {
+    for (const id of [
+      "kpi-total-stations-label",
+      "kpi-average-readiness-label",
+      "kpi-best-readiness-label",
+      "kpi-underserved-label",
+      "kpi-priority-label"
+    ]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(mainSource).toContain("Largest charging-gap change");
+    expect(mainSource).toContain("This is a change view, not a site recommendation.");
+    expect(mainSource).toContain("Scenario priority rank");
   });
 
   it("lists project data sources as text", () => {

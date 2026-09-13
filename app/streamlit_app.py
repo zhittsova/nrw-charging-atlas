@@ -1,3 +1,11 @@
+"""Historical parallel dashboard. Superseded by the Leaflet/TypeScript frontend.
+
+It reads whichever screening scores `scripts/build_nrw_metrics.py` or the
+bootstrap snapshot happens to have written, not the canonical PostGIS model in
+`publish.nrw_ev_baseline_metrics`.  Contract C06 retires this path once the
+canonical replacement is verified; that removal is owned by S21 (finding F43).
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

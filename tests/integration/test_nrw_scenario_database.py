@@ -2,18 +2,138 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from run_postgis_tests import psql_connection, require_disposable_database_url  # noqa: E402
+
+
 DATABASE_URL = os.environ.get("SCENARIO_TEST_DATABASE_URL")
+
+
+@unittest.skipUnless(DATABASE_URL, "SCENARIO_TEST_DATABASE_URL is not configured")
+class LegacyProposedChargerMigrationDatabaseTest(unittest.TestCase):
+    """Exercise the S05 upgrade against an isolated pre-contract table."""
+
+    legacy_id = "123e4567-e89b-12d3-a456-426614174000"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert DATABASE_URL is not None
+        run_id = os.environ.get("SCENARIO_TEST_RUN_ID")
+        endpoint = os.environ.get("SCENARIO_TEST_ENDPOINT")
+        require_disposable_database_url(DATABASE_URL, run_id=run_id, endpoint=endpoint)
+        cls.psql_base, cls.psql_environment = psql_connection(
+            DATABASE_URL, run_id=run_id, endpoint=endpoint
+        )
+        cls.psql(
+            """
+            DROP SCHEMA IF EXISTS publish CASCADE;
+            DROP SCHEMA IF EXISTS analytics CASCADE;
+            DROP SCHEMA IF EXISTS staging CASCADE;
+            DROP SCHEMA IF EXISTS scenario CASCADE;
+            DROP SCHEMA IF EXISTS raw CASCADE;
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            CREATE SCHEMA raw;
+            CREATE SCHEMA scenario;
+            CREATE TABLE raw.chargers (
+                source_id text NOT NULL, operator text, status text,
+                charger_type text, charging_points integer, power_kw numeric,
+                street text, postcode text, city text, district_text text,
+                bundesland text, geom geometry(Point, 4326) NOT NULL
+            );
+            CREATE TABLE raw.admin_regions (
+                nuts_code text NOT NULL, ags text, district_name text,
+                region_name text, geom geometry(MultiPolygon, 4326) NOT NULL
+            );
+            CREATE TABLE scenario.proposed_chargers (
+                id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                name text NOT NULL, charging_points integer NOT NULL,
+                power_kw numeric NOT NULL, nuts_code text NOT NULL,
+                status text NOT NULL DEFAULT 'proposed',
+                created_at timestamptz NOT NULL DEFAULT now(),
+                geom geometry(Point, 4326) NOT NULL
+            );
+            INSERT INTO scenario.proposed_chargers (
+                id, name, charging_points, power_kw, nuts_code, status, geom
+            ) VALUES (
+                '123e4567-e89b-12d3-a456-426614174000', 'Legacy station', 2,
+                44, 'DEA01', 'proposed', ST_SetSRID(ST_Point(6.5, 50.5), 4326)
+            );
+            """
+        )
+        cls.psql_file(ROOT / "db/nrw_schema.sql")
+
+    @classmethod
+    def psql(cls, sql: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            cls.psql_base,
+            input=sql,
+            text=True,
+            capture_output=True,
+            check=False,
+            env=cls.psql_environment,
+        )
+        if check and result.returncode:
+            raise RuntimeError(result.stderr or result.stdout or "psql failed")
+        return result
+
+    @classmethod
+    def psql_file(cls, path: Path) -> None:
+        result = subprocess.run(
+            [*cls.psql_base, "-f", str(path)],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=cls.psql_environment,
+        )
+        if result.returncode:
+            raise RuntimeError(result.stderr or result.stdout or "psql file failed")
+
+    def test_migration_preserves_legacy_identity_aggregate_and_unknown_maximum(self) -> None:
+        result = self.psql(
+            """
+            SELECT id, name, charging_points, power_kw,
+                   max_point_power_kw IS NULL, nuts_code, status
+            FROM scenario.proposed_chargers;
+            """,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            f"{self.legacy_id}|Legacy station|2|44|t|DEA01|proposed",
+        )
+
+    def test_migration_is_idempotent_without_backfilling_legacy_maximum(self) -> None:
+        self.psql_file(ROOT / "db/nrw_schema.sql")
+        result = self.psql(
+            "SELECT count(*), bool_and(max_point_power_kw IS NULL), min(power_kw) "
+            "FROM scenario.proposed_chargers;",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1|t|44")
 
 
 @unittest.skipUnless(DATABASE_URL, "SCENARIO_TEST_DATABASE_URL is not configured")
 class ProposedChargerDatabaseTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        assert DATABASE_URL is not None
+        run_id = os.environ.get("SCENARIO_TEST_RUN_ID")
+        endpoint = os.environ.get("SCENARIO_TEST_ENDPOINT")
+        require_disposable_database_url(DATABASE_URL, run_id=run_id, endpoint=endpoint)
+        cls.psql_base, cls.psql_environment = psql_connection(
+            DATABASE_URL, run_id=run_id, endpoint=endpoint
+        )
         cls.psql(
             "DROP SCHEMA IF EXISTS publish CASCADE;"
             "DROP SCHEMA IF EXISTS analytics CASCADE;"
@@ -57,33 +177,40 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
 
     @classmethod
     def psql(cls, sql: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["psql", DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-qAt"],
+        result = subprocess.run(
+            cls.psql_base,
             input=sql,
             text=True,
             capture_output=True,
-            check=check,
+            check=False,
+            env=cls.psql_environment,
         )
+        if check and result.returncode:
+            raise RuntimeError(result.stderr or result.stdout or "psql failed")
+        return result
 
     @classmethod
     def psql_file(cls, path: Path) -> None:
-        subprocess.run(
-            ["psql", DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-f", str(path)],
+        result = subprocess.run(
+            [*cls.psql_base, "-f", str(path)],
             text=True,
             capture_output=True,
-            check=True,
+            check=False,
+            env=cls.psql_environment,
         )
+        if result.returncode:
+            raise RuntimeError(result.stderr or result.stdout or "psql file failed")
 
     def test_valid_insert_normalizes_name_and_assigns_covering_district(self) -> None:
         result = self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                '  Demo Station  ', 4, 150,
+                '  Demo Station  ', 4, 150, 75,
                 ST_SetSRID(ST_Point(6.5, 50.5), 4326)
             )
-            RETURNING name, charging_points, power_kw, nuts_code,
+            RETURNING name, charging_points, power_kw, max_point_power_kw, nuts_code,
                       status, id IS NOT NULL, created_at IS NOT NULL;
             """,
             check=False,
@@ -92,16 +219,16 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            "Demo Station|4|150|DEA01|proposed|t|t",
+            "Demo Station|4|150|75|DEA01|proposed|t|t",
         )
 
     def test_insert_outside_nrw_is_rejected_without_persisting_a_row(self) -> None:
         result = self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                'Outside', 2, 22,
+                'Outside', 2, 22, 22,
                 ST_SetSRID(ST_Point(9, 54), 4326)
             );
             """,
@@ -119,9 +246,9 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         result = self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                'Boundary', 2, 22,
+                'Boundary', 2, 22, 22,
                 ST_SetSRID(ST_Point(7, 50.5), 4326)
             );
             """,
@@ -136,18 +263,21 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
 
     def test_database_rejects_invalid_name_points_and_power(self) -> None:
         invalid_rows = (
-            ("'   '", "2", "22", "proposed charger name"),
-            ("'Bad points'", "0", "22", "proposed_chargers_charging_points_check"),
-            ("'Bad power'", "2", "1001", "proposed_chargers_power_kw_check"),
+            ("'   '", "2", "22", "22", "proposed charger name"),
+            ("'Bad points'", "0", "22", "22", "proposed_chargers_charging_points_check"),
+            ("'Bad power'", "2", "1001", "22", "proposed_chargers_power_kw_check"),
+            ("'No maximum'", "2", "22", "NULL", "requires max_point_power_kw"),
+            ("'Too large maximum'", "2", "22", "50", "max_point_power_kw"),
+            ("'Infinite maximum'", "2", "22", "'Infinity'", "max_point_power_kw"),
         )
-        for name, points, power, expected_error in invalid_rows:
+        for name, points, power, maximum, expected_error in invalid_rows:
             with self.subTest(expected_error=expected_error):
                 result = self.psql(
                     f"""
                     INSERT INTO scenario.proposed_chargers (
-                        name, charging_points, power_kw, geom
+                        name, charging_points, power_kw, max_point_power_kw, geom
                     ) VALUES (
-                        {name}, {points}, {power},
+                        {name}, {points}, {power}, {maximum},
                         ST_SetSRID(ST_Point(6.5, 50.5), 4326)
                     );
                     """,
@@ -160,9 +290,9 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         result = self.psql(
             f"""
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                '{'x' * 121}', 2, 22,
+                '{'x' * 121}', 2, 22, 22,
                 ST_SetSRID(ST_Point(6.5, 50.5), 4326)
             );
             """,
@@ -176,9 +306,9 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         result = self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                'Invalid coordinate', 2, 22,
+                'Invalid coordinate', 2, 22, 22,
                 ST_SetSRID(ST_Point(181, 50.5), 4326)
             );
             """,
@@ -192,9 +322,9 @@ class ProposedChargerDatabaseTest(unittest.TestCase):
         insert = self.psql(
             """
             INSERT INTO scenario.proposed_chargers (
-                name, charging_points, power_kw, geom
+                name, charging_points, power_kw, max_point_power_kw, geom
             ) VALUES (
-                'Move me', 2, 50,
+                'Move me', 2, 50, 50,
                 ST_SetSRID(ST_Point(6.5, 50.5), 4326)
             ) RETURNING id;
             """,
