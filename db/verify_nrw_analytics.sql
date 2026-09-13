@@ -111,6 +111,30 @@ BEGIN
 END;
 $$;
 
+-- F46: this verifier checks a complete NRW installation, whose operating
+-- renewable source must not disappear into the equal-bounds score of 50.
+-- Individual zero-asset districts and equal technology-diversity bounds are
+-- valid; the statewide capacity distribution must still contain real variation.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM analytics.nrw_renewable_raw
+        WHERE renewable_installation_count > 0
+    ) THEN
+        RAISE EXCEPTION 'F46: NRW operating renewable domain is empty';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM analytics.nrw_renewable_bounds
+        WHERE capacity_low IS NOT NULL AND capacity_high IS NOT NULL
+          AND capacity_low::text NOT IN ('NaN', 'Infinity', '-Infinity')
+          AND capacity_high::text NOT IN ('NaN', 'Infinity', '-Infinity')
+          AND capacity_low < capacity_high
+    ) THEN
+        RAISE EXCEPTION 'F46: NRW renewable capacity bounds are missing or degenerate';
+    END IF;
+END;
+$$;
+
 -- Every published composite must equal the weighted sum of the published
 -- components beside it, and must be unavailable exactly when one of them is.
 --   indicator_score = ROUND(SUM(constant_term + component_weight * component), 1)

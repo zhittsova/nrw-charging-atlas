@@ -27,8 +27,7 @@ inferred from a download time.
 
 The Ladesäulenregister states its publication date in the preamble above the
 header row, for example `Letzte Aktualisierung vom: 22.04.2026`.
-`scripts/generate_nrw_frontend_data.py` reads it, writes it onto the generated
-station collection as `snapshot_date`, and `scripts/load_nrw_postgis.py` records
+`scripts/nrw_raw_inputs.py` reads it, and `scripts/load_nrw_postgis.py` records
 it in `raw.source_snapshots` under the key `bnetza_ladesaeulenregister`. The
 canonical district projection publishes it as `charger_snapshot_date`. A file
 whose preamble carries no readable date leaves the field NULL with
@@ -155,10 +154,18 @@ validated Content-Range; candidates without that identity restart safely.
 Declared transfer lengths and source-format checks run before replacement,
 while the prior final input stays available. Format checks cover CSV headers
 and an initial data row, GeoJSON structure, archive integrity and the OSM PBF
-header; S09 retains full import and domain validation. Registry roles distinguish
+header; the import pipeline retains full domain validation. Registry roles distinguish
 `required_input`, `contextual_input`, and `contextual_unused`; the latter are
 never represented as scoring inputs merely because their files were fetched.
 
 Licensing and attribution requirements remain with each manifest entry. OSM
 data requires ODbL attribution. Grid results remain proxies because the public
 inputs do not establish network capacity or connection availability.
+
+## Attribution and code licence
+
+The two source registries are the authoritative record of source URLs, access
+conditions, attribution, and licence notes. Preserve their notices in exports,
+GeoNode metadata, presentations, and any later redistribution. Project-owned
+code has no public licence grant; that decision is separate from permissions
+for the underlying public data and upstream software.

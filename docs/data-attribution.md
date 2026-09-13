@@ -51,8 +51,8 @@ layers use GeoNode's ODbL/OSM licence entry. These labels do not waive any
 upstream terms or imply a legal compliance conclusion.
 
 The project includes GeoNode pinned at upstream commit `614b85…` (GPL-3.0),
-GeoServer, PostGIS, Leaflet 1.9.4 (BSD-2-Clause), Vite 5.4.21 (MIT), TypeScript
-5.9.3 (Apache-2.0), Vitest 2.1.9 (MIT), and `@types/leaflet` 1.9.21 (MIT).
+GeoServer, PostGIS, Leaflet 1.9.4 (BSD-2-Clause), Vite 7.3.6 (MIT), TypeScript
+5.9.3 (Apache-2.0), Vitest 4.1.11 (MIT), and `@types/leaflet` 1.9.21 (MIT).
 Their licences belong to their respective distributions. Python-package and
 container-image terms/digests have not been independently resolved here and
 are deliberately marked unknown; consult the actual locked distribution or

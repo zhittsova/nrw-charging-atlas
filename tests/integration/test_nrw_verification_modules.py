@@ -1,10 +1,7 @@
-"""Execute the SQL verification modules against a full 53-district fixture.
+"""Execute both SQL verification modules against a full 53-district fixture.
 
-S07 changed what the modules assert but only checked their source text. These
-tests run `db/verify_nrw_analytics.sql` and `db/verify_nrw_energy_balance.sql`
-for real, including a district whose consumption is a measured zero, and prove
-that contradictory quality metadata is actually rejected rather than merely
-described. Wiring the modules into the pipeline remains S18's work.
+The fixture includes a district whose consumption is a measured zero and
+contradictory quality metadata that each module must reject.
 """
 
 from __future__ import annotations
@@ -216,6 +213,38 @@ class VerificationModuleTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, "invalid raw charger was accepted")
                 self.assertIn("F45", result.stderr)
                 self.build()
+
+    def test_the_analytics_verifier_rejects_an_empty_renewable_domain(self) -> None:
+        self.addCleanup(self.build)
+        self.psql("DELETE FROM raw.renewable_assets;")
+        self.psql_file(ROOT / "db/nrw_analytics.sql")
+
+        result = self.psql_file(ROOT / "db/verify_nrw_analytics.sql", check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("F46: NRW operating renewable domain is empty", result.stderr)
+
+    def test_the_analytics_verifier_rejects_collapsed_renewable_capacity(self) -> None:
+        self.addCleanup(self.build)
+        self.psql("UPDATE raw.renewable_assets SET capacity_mw = 0;")
+        self.psql_file(ROOT / "db/nrw_analytics.sql")
+
+        result = self.psql_file(ROOT / "db/verify_nrw_analytics.sql", check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("F46: NRW renewable capacity bounds are missing or degenerate", result.stderr)
+
+    def test_the_analytics_verifier_allows_a_zero_asset_district(self) -> None:
+        self.addCleanup(self.build)
+        self.psql("DELETE FROM raw.renewable_assets WHERE source_id = 'raDEA01';")
+        self.psql_file(ROOT / "db/nrw_analytics.sql")
+
+        result = self.psql_file(ROOT / "db/verify_nrw_analytics.sql", check=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.value(
+            "SELECT renewable_installation_count FROM analytics.nrw_renewable_raw WHERE nuts_code = 'DEA01';"
+        ), "0")
 
     def test_unknown_raw_power_is_preserved_as_a_classification(self) -> None:
         self.addCleanup(self.build)

@@ -1,0 +1,11 @@
+# Initialize the pinned checkout and private configuration with:
+# uv run python -m scripts.project_stack init
+name: geonode
+
+include:
+  - path:
+      - ./geonode/docker-compose.yml
+      - ./config/geonode/docker-compose.apple-silicon.yml
+      - ./config/geonode/docker-compose.nrw-project.yml
+    project_directory: ./geonode
+    env_file: ./geonode/.env
