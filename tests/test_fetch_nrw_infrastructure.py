@@ -327,7 +327,7 @@ class InfrastructureDownloadTest(unittest.TestCase):
             real_replace = source_cache.os.replace
 
             def fail_final(partial, final):
-                if Path(final) == target:
+                if Path(final).resolve() == target.resolve():
                     raise OSError("atomic finalization failed")
                 return real_replace(partial, final)
 

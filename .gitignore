@@ -21,6 +21,7 @@ build/
 
 /geonode/
 /specs/
+/backups/
 
 data/raw/
 data/interim/

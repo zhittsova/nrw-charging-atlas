@@ -57,3 +57,42 @@ workers. Both task queues remain available. Local service ports bind only to loo
 
 Run the Python and frontend checks listed in the root README before changing
 the project.
+
+## Backup and restore
+
+S19 provides a local, restricted backup tool. It captures a logical dump of
+the integrated PostGIS cluster (both project and GeoNode databases and roles),
+the GeoServer data directory, media/static state, shared data and generated
+nginx configuration/certificates, the local environment configuration, and the
+canonical runtime/source manifests. Backups are intentionally written to the
+ignored `backups/` directory with owner-only permissions; they may contain
+passwords and certificates.
+
+```bash
+uv run python -m scripts.backup_restore backup
+uv run python -m scripts.backup_restore drill
+```
+
+`drill` creates a new backup and restores it into a new `nrw-restore-*`
+Compose project using separate loopback ports. It checks the backup manifest
+and every component checksum before restoring, runs the database verifier and
+the public catalog/WFS persisted-scenario verifier against the copy, and
+removes only the drill's target resources afterwards. It never deletes source
+volumes or changes the live stack.
+
+To retain an isolated restored copy for investigation, use a fresh target name
+and pass `--verify`; the tool refuses a name outside `nrw-restore-*`, any
+pre-existing target volume, any active target project, and any overlap with a
+source volume:
+
+```bash
+uv run python -m scripts.backup_restore restore backups/<backup-directory> \
+  --target nrw-restore-investigation --verify
+```
+
+Restore targets are not live replacements. Remove an investigation target only
+after its evidence is recorded, using Docker commands that name that exact
+`nrw-restore-*` project and its volumes. The operator owns retention: keep at
+least one recently verified backup, verify a newer backup before discarding a
+known-good older one, and never place backups or their manifests in Git or
+`specs/`.
