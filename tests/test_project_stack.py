@@ -78,6 +78,17 @@ class ProjectStackTest(unittest.TestCase):
         run_etl.assert_called_once_with("scripts/export_nrw_runtime.py")
 
     @patch("project_stack.subprocess.run")
+    @patch("project_stack.run_etl")
+    def test_verify_runs_sql_modules_before_the_live_contract(self, run_etl, run) -> None:
+        project_stack.verify_project()
+
+        run_etl.assert_called_once_with("scripts/verify_nrw_database.py")
+        run.assert_called_once_with(
+            [sys.executable, str(ROOT / "scripts" / "verify_project_e2e.py")],
+            check=True,
+        )
+
+    @patch("project_stack.subprocess.run")
     @patch("project_stack.geonode_stack.project_database_name", return_value="nrw_test")
     def test_publish_uses_module_invocation_and_configured_database(self, database_name, run) -> None:
         project_stack.provision_layers()

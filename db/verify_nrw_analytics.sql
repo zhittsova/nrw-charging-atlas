@@ -59,6 +59,58 @@ BEGIN
 END;
 $$;
 
+-- F45: charger source semantics are part of the published contract.  Unknown
+-- power remains NULL (and is counted separately); it must never be replaced
+-- with a made-up zero.  Known values, however, need to be finite and
+-- non-negative before the district aggregates and the public WFS layer can
+-- safely expose them.
+DO $$
+DECLARE
+    invalid_rows bigint;
+    mismatched_districts bigint;
+BEGIN
+    SELECT count(*) INTO invalid_rows
+    FROM raw.chargers
+    WHERE charging_points IS NULL
+       OR charging_points < 1
+       OR (power_kw IS NOT NULL
+           AND (power_kw::text IN ('NaN', 'Infinity', '-Infinity') OR power_kw < 0))
+       OR (max_point_power_kw IS NOT NULL
+           AND (max_point_power_kw::text IN ('NaN', 'Infinity', '-Infinity') OR max_point_power_kw < 0));
+    IF invalid_rows <> 0 THEN
+        RAISE EXCEPTION 'F45: % raw chargers have invalid point or power semantics', invalid_rows;
+    END IF;
+
+    WITH classified AS (
+        SELECT
+            a.nuts_code,
+            COUNT(*) AS chargers_total,
+            SUM(c.charging_points) AS charging_points_total,
+            COUNT(*) FILTER (WHERE c.max_point_power_kw >= 50) AS fast_chargers_total,
+            COUNT(*) FILTER (WHERE c.max_point_power_kw < 50) AS normal_chargers_total,
+            COUNT(*) FILTER (WHERE c.max_point_power_kw IS NULL) AS unknown_power_chargers_total
+        FROM staging.nrw_charger_districts a
+        JOIN raw.chargers c USING (source_id)
+        GROUP BY a.nuts_code
+    )
+    SELECT count(*) INTO mismatched_districts
+    FROM analytics.nrw_district_metrics d
+    LEFT JOIN classified c USING (nuts_code)
+    WHERE d.chargers_total <> COALESCE(c.chargers_total, 0)
+       OR d.charging_points_total <> COALESCE(c.charging_points_total, 0)
+       OR d.fast_chargers_total <> COALESCE(c.fast_chargers_total, 0)
+       OR d.normal_chargers_total <> COALESCE(c.normal_chargers_total, 0)
+       OR d.unknown_power_chargers_total <> COALESCE(c.unknown_power_chargers_total, 0)
+       OR d.chargers_total <> d.fast_chargers_total
+                             + d.normal_chargers_total
+                             + d.unknown_power_chargers_total;
+    IF mismatched_districts <> 0 THEN
+        RAISE EXCEPTION 'F45: % district charger totals do not preserve fast, normal, and unknown-power semantics',
+            mismatched_districts;
+    END IF;
+END;
+$$;
+
 -- Every published composite must equal the weighted sum of the published
 -- components beside it, and must be unavailable exactly when one of them is.
 --   indicator_score = ROUND(SUM(constant_term + component_weight * component), 1)
