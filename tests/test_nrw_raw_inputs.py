@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT / "scripts"))
 
 import nrw_raw_inputs as generator  # noqa: E402
+import source_cache  # noqa: E402
 
 
 class ChargingPowerParsingTest(unittest.TestCase):
@@ -94,6 +95,40 @@ class ChargingPowerParsingTest(unittest.TestCase):
         # The register's own publication date is the only provenance the file
         # carries, and it is read from the preamble rather than invented.
         self.assertEqual(snapshot_date, "2026-04-22")
+
+    def test_loads_utf8_bom_register_with_current_coordinate_header(self) -> None:
+        csv_text = "\n".join(
+            [
+                *("header" for _ in range(7)),
+                "Letzte Aktualisierung vom: 01.09.2026;;;",
+                "header",
+                "header",
+                ";".join(
+                    [
+                        "Ladeeinrichtungs-ID",
+                        "Bundesland",
+                        "Breitengrad",
+                        "Längengrad",
+                        "Nennleistung Ladeeinrichtung [kW]",
+                        "Anzahl Ladepunkte",
+                    ]
+                ),
+                ";".join(["fixture-utf8", "Nordrhein-Westfalen", "51,2", "7,1", "44", "2"]),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "fixture.csv"
+            source.write_text(csv_text, encoding="utf-8-sig")
+            source_cache.validate_consumed_format(source, dataset_id="bnetza_charging_register_nrw")
+            with patch.object(generator, "ROOT", root):
+                chargers, snapshot_date = generator.load_nrw_chargers(
+                    {"raw_bnetza_path": "fixture.csv", "region_name": "Nordrhein-Westfalen"}
+                )
+
+        self.assertEqual(len(chargers), 1)
+        self.assertEqual(chargers[0]["geometry"]["coordinates"], [7.1, 51.2])
+        self.assertEqual(snapshot_date, "2026-09-01")
 
     def test_snapshot_date_is_read_from_the_register_preamble(self) -> None:
         self.assertEqual(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -44,6 +45,38 @@ class RefreshCoordinatorTest(unittest.TestCase):
             (provenance / "fixture.json").write_text("{not json", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "Consumed provenance is malformed"):
                 refresh.consumed_input_records({"fixture": source}, provenance_dir=provenance)
+
+    def test_configured_foundation_inputs_include_boundary_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config/regions/nrw.yml"
+            config.parent.mkdir(parents=True)
+            config.write_text("raw_nuts3_path: custom/boundaries.geojson\nraw_bnetza_path: custom/register.csv\n")
+            with patch.object(refresh, "ROOT", root):
+                paths = refresh.foundation_input_paths()
+        self.assertEqual(paths, {
+            "nuts3_regions_gisco_nrw": root / "custom/boundaries.geojson",
+            "bnetza_ladesaeulenregister": root / "custom/register.csv",
+        })
+
+    def test_ingest_aliases_keep_the_fetchers_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.write_bytes(b"canonical input")
+            provenance = root / "provenance"
+            provenance.mkdir()
+            for source_key, dataset_id in (
+                ("bnetza_ladesaeulenregister", "bnetza_charging_register_nrw"),
+                ("geofabrik_nrw_osm_roads", "geofabrik_nrw_osm_power"),
+            ):
+                with self.subTest(source_key=source_key):
+                    record = {"dataset_id": dataset_id, "sha256": refresh._sha256(source)[1]}
+                    (provenance / f"{dataset_id}.json").write_text(json.dumps(record))
+                    consumed = refresh.consumed_input_records({source_key: source}, provenance_dir=provenance)[0]
+                    self.assertEqual(consumed["source_key"], source_key)
+                    self.assertEqual(consumed["provenance"], record)
+                    self.assertEqual(len(consumed["provenance_sha256"]), 64)
 
     def test_ingest_provenance_is_transaction_bound(self) -> None:
         sql = refresh.ingest_provenance_import([

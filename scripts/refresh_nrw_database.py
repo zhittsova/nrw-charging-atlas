@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-from config_utils import ROOT
+from config_utils import ROOT, read_simple_region_config
 from load_nrw_energy_balance_postgis import (
     ENERGY_WORKBOOK,
     build_district_lookup,
@@ -58,6 +58,19 @@ RENEWABLE_SNAPSHOT = (
     / "Standorte-Strom-EE-NRW_EPSG25832_GeoPackage.zip"
 )
 PROVENANCE_DIR = ROOT / "data" / "raw" / "provenance"
+PROVENANCE_KEYS = {
+    "bnetza_ladesaeulenregister": "bnetza_charging_register_nrw",
+    "geofabrik_nrw_osm_roads": "geofabrik_nrw_osm_power",
+}
+
+
+def foundation_input_paths() -> dict[str, Path]:
+    """Record the same configured boundary/register files used by the loader."""
+    config = read_simple_region_config(ROOT / "config" / "regions" / "nrw.yml")
+    return {
+        "nuts3_regions_gisco_nrw": ROOT / str(config["raw_nuts3_path"]),
+        "bnetza_ladesaeulenregister": ROOT / str(config["raw_bnetza_path"]),
+    }
 
 
 def _sha256(path: Path) -> tuple[int, str]:
@@ -77,7 +90,8 @@ def consumed_input_records(paths: dict[str, Path], *, provenance_dir: Path = PRO
         if not path.is_file():
             raise ValueError(f"Consumed source is missing: {path}")
         size, checksum = _sha256(path)
-        provenance_file = provenance_dir / f"{source_key}.json"
+        provenance_key = PROVENANCE_KEYS.get(source_key, source_key)
+        provenance_file = provenance_dir / f"{provenance_key}.json"
         provenance: object | None = None
         provenance_checksum: str | None = None
         if provenance_file.exists():
@@ -189,7 +203,7 @@ FROM import_population;
 COMMIT;
 """
     consumed = consumed_input_records({
-        "bnetza_ladesaeulenregister": ROOT / "data" / "raw" / "bnetza_ladesaeulenregister.csv",
+        **foundation_input_paths(),
         "eurostat_population_nrw": population_snapshot,
         "opsd_conventional_power_plants_nrw": opsd_snapshot,
         "strassen_nrw_traffic_values": traffic_snapshot,
