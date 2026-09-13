@@ -1115,6 +1115,15 @@ SELECT
     s.charging_points_per_100k_population
         - b.charging_points_per_100k_population
         AS charging_points_per_100k_population_delta,
+    -- Scenario component scores reuse these immutable baseline bounds.
+    -- Publishing the measurements and bounds lets a WFS client independently
+    -- detect a frozen score after a proposal changes a component input.
+    bounds.charging_point_density_low AS charging_point_density_lower_bound,
+    bounds.charging_point_density_high AS charging_point_density_upper_bound,
+    bounds.charger_distance_low AS charger_distance_lower_bound,
+    bounds.charger_distance_high AS charger_distance_upper_bound,
+    bounds.population_coverage_low AS population_coverage_lower_bound,
+    bounds.population_coverage_high AS population_coverage_upper_bound,
     b.distance_to_nearest_charger_m AS baseline_distance_to_nearest_charger_m,
     s.distance_to_nearest_charger_m AS scenario_distance_to_nearest_charger_m,
     s.distance_to_nearest_charger_m - b.distance_to_nearest_charger_m
@@ -1152,7 +1161,8 @@ SELECT
     b.formula_version,
     s.geom
 FROM ranked s
-JOIN analytics.nrw_ev_baseline_metrics b USING (nuts_code);
+JOIN analytics.nrw_ev_baseline_metrics b USING (nuts_code)
+CROSS JOIN analytics.nrw_ev_baseline_bounds bounds;
 
 -- The score model ----------------------------------------------------------
 -- One row per weighted term of every published indicator: the component it

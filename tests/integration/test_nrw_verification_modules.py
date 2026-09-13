@@ -201,6 +201,39 @@ class VerificationModuleTest(unittest.TestCase):
         result = self.psql_file(ROOT / "db/verify_nrw_analytics.sql", check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_the_analytics_verifier_rejects_invalid_raw_charger_semantics(self) -> None:
+        """F45 validates source values before they can reach public WFS rows."""
+        self.addCleanup(self.build)
+        for assignment in (
+            "charging_points = NULL",
+            "max_point_power_kw = 'NaN'::numeric",
+            "max_point_power_kw = 'Infinity'::numeric",
+            "power_kw = -1",
+        ):
+            with self.subTest(assignment=assignment):
+                self.psql(f"UPDATE raw.chargers SET {assignment} WHERE source_id = 'c1';")
+                result = self.psql_file(ROOT / "db/verify_nrw_analytics.sql", check=False)
+                self.assertNotEqual(result.returncode, 0, "invalid raw charger was accepted")
+                self.assertIn("F45", result.stderr)
+                self.build()
+
+    def test_unknown_raw_power_is_preserved_as_a_classification(self) -> None:
+        self.addCleanup(self.build)
+        self.psql("UPDATE raw.chargers SET power_kw = NULL, max_point_power_kw = NULL WHERE source_id = 'c1';")
+        self.psql("REFRESH MATERIALIZED VIEW analytics.nrw_district_metrics;")
+        self.psql_file(ROOT / "db/nrw_analytics.sql")
+
+        result = self.psql_file(ROOT / "db/verify_nrw_analytics.sql", check=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.value(
+                "SELECT unknown_power_chargers_total::text FROM analytics.nrw_district_metrics "
+                "WHERE nuts_code = 'DEA01';"
+            ),
+            "1",
+        )
+
     def test_the_energy_verifier_passes_with_a_measured_zero_district(self) -> None:
         result = self.psql_file(ROOT / "db/verify_nrw_energy_balance.sql", check=False)
         self.assertEqual(result.returncode, 0, result.stderr)

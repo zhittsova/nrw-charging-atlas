@@ -74,6 +74,10 @@ def provision_layers() -> None:
 
 
 def verify_project() -> None:
+    # Keep SQL verification in the database-owning tools container.  This
+    # checks selected source years, coverage and score formulas before the
+    # host-side WFS/browser-facing contract verifier exercises public services.
+    run_etl("scripts/verify_nrw_database.py")
     subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "verify_project_e2e.py")],
         check=True,
