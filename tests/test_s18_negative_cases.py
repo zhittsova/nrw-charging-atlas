@@ -9,8 +9,11 @@ prove that a guard exists.
 
 from __future__ import annotations
 
-import sys
+import hashlib
+import json
 import re
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -80,19 +83,32 @@ def _feature(layer: str, *, null_score: bool = False, invalid_coverage: bool = F
         properties.update({"scenario_chargers_total": 10, "scenario_charging_points_total": 24})
     geometry_type = verifier.LAYER_CONTRACTS[layer].geometry
     coordinates: object = [6.7735, 51.2277]
-    if geometry_type == "LineString": coordinates = [[6.7, 51.2], [6.8, 51.3]]
-    if geometry_type == "MultiPolygon": coordinates = [[[[6.7, 51.2], [6.8, 51.2], [6.8, 51.3], [6.7, 51.2]]]]
+    if geometry_type == "LineString":
+        coordinates = [[6.7, 51.2], [6.8, 51.3]]
+    if geometry_type == "MultiPolygon":
+        coordinates = [[[[6.7, 51.2], [6.8, 51.2], [6.8, 51.3], [6.7, 51.2]]]]
     return {"type": "Feature", "properties": properties, "geometry": {"type": geometry_type, "coordinates": coordinates}}
 
 
 class ContractSession:
-    def __init__(self, *, wrong_namespace: str | None = None, missing_field: str | None = None, null_score: bool = False, invalid_coverage: bool = False, property_updates: dict[str, object] | None = None, charger_updates: dict[str, object] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        wrong_namespace: str | None = None,
+        missing_field: str | None = None,
+        null_score: bool = False,
+        invalid_coverage: bool = False,
+        property_updates: dict[str, object] | None = None,
+        charger_updates: dict[str, object] | None = None,
+        renewable_updates: dict[str, object] | None = None,
+    ) -> None:
         self.wrong_namespace = wrong_namespace
         self.missing_field = missing_field
         self.null_score = null_score
         self.invalid_coverage = invalid_coverage
         self.property_updates = property_updates or {}
         self.charger_updates = charger_updates or {}
+        self.renewable_updates = renewable_updates or {}
 
     def get(self, _url: str, *, params: dict, timeout: int) -> FakeResponse:
         del timeout
@@ -108,6 +124,9 @@ class ContractSession:
         if layer == "nrw_chargers":
             for feature in features:
                 feature["properties"].update(self.charger_updates)
+        if layer == "nrw_renewable_potential":
+            for feature in features:
+                feature["properties"].update(self.renewable_updates)
         return FakeResponse(payload={"features": features})
 
 
@@ -163,6 +182,59 @@ class MutationSession:
 
 
 class S18NegativeCasesTest(unittest.TestCase):
+    def write_runtime_snapshot(
+        self,
+        root: Path,
+        *,
+        technology: str = "Windenergie",
+        status: str = "In Betrieb",
+    ) -> None:
+        current = root / "current"
+        current.mkdir(parents=True, exist_ok=True)
+        collection = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {
+                    "source_id": "renewable-1",
+                    "technology": technology,
+                    "status": status,
+                },
+                "geometry": {"type": "Point", "coordinates": [7.0, 51.0]},
+            }],
+        }
+        content = json.dumps(collection, sort_keys=True).encode("utf-8")
+        (current / "nrw_renewable_assets_sample.geojson").write_bytes(content)
+        manifest = {
+            "renewable_display_filter": {
+                "status": "In Betrieb",
+                "technologies": ["Photovoltaik Freifläche", "Windenergie"],
+            },
+            "artifacts": {
+                "renewables": {
+                    "file": "nrw_renewable_assets_sample.geojson",
+                    "count": 1,
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                },
+            },
+        }
+        (current / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    def test_catalogue_wfs_permits_non_display_renewables(self) -> None:
+        verifier.verify_wfs_contract(
+            ContractSession(renewable_updates={"technology": "Photovoltaik Bauliche", "status": "Außer Betrieb"}),
+            "http://wfs/ows",
+        )
+
+    def test_runtime_snapshot_enforces_renewable_display_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_runtime_snapshot(root)
+            verifier.verify_runtime_display_snapshot(root)
+            self.write_runtime_snapshot(root, technology="Photovoltaik Bauliche")
+            with self.assertRaisesRegex(RuntimeError, "non-display technology"):
+                verifier.verify_runtime_display_snapshot(root)
+
     def test_missing_layer_fails_contract(self) -> None:
         class MissingLayer(ContractSession):
             def get(self, url: str, *, params: dict, timeout: int) -> FakeResponse:
