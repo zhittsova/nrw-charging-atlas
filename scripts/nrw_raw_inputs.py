@@ -15,6 +15,7 @@ from datetime import date
 from pathlib import Path
 
 from config_utils import ROOT
+from source_cache import bnetza_csv_encoding
 # The BNetzA register states its own publication date in the preamble above the
 # header row, for example "Letzte Aktualisierung vom: 22.04.2026".  Nothing else
 # in the download carries it, so it is read here and travels with the generated
@@ -116,7 +117,8 @@ def load_nrw_regions(config: dict[str, object]) -> list[dict]:
 
 
 def load_nrw_chargers(config: dict[str, object]) -> tuple[list[dict], str | None]:
-    with (ROOT / str(config["raw_bnetza_path"])).open(encoding="cp1252", errors="replace") as file:
+    path = ROOT / str(config["raw_bnetza_path"])
+    with path.open(encoding=bnetza_csv_encoding(path), newline="") as file:
         preamble = "".join(next(file) for _ in range(CHARGER_PREAMBLE_ROWS))
         rows = list(csv.DictReader(file, delimiter=";"))
     snapshot_date = parse_charger_snapshot_date(preamble)

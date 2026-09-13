@@ -133,6 +133,17 @@ def _discard_partial(partial: Path) -> None:
     partial_metadata_path(partial).unlink(missing_ok=True)
 
 
+def bnetza_csv_encoding(path: Path) -> str:
+    """Return the register encoding without guessing from decoded text.
+
+    BNetzA historically published the register in Windows-1252, but current
+    releases are UTF-8 with a byte-order mark.  Reading the bytes first keeps
+    the coordinate header intact in both formats.
+    """
+    with path.open("rb") as source:
+        return "utf-8-sig" if source.read(3) == b"\xef\xbb\xbf" else "cp1252"
+
+
 def validate_consumed_format(path: Path, *, dataset_id: str = "input") -> None:
     """Reject obvious transport/error documents before replacing raw inputs.
 
@@ -154,7 +165,8 @@ def validate_consumed_format(path: Path, *, dataset_id: str = "input") -> None:
     if suffixes.endswith(".csv"):
         bnetza = dataset_id == "bnetza_charging_register_nrw"
         try:
-            with path.open(encoding="cp1252" if bnetza else "utf-8-sig", newline="") as source:
+            encoding = bnetza_csv_encoding(path) if bnetza else "utf-8-sig"
+            with path.open(encoding=encoding, newline="") as source:
                 for _ in range(10 if bnetza else 0):
                     next(source)
                 rows = reader(source, delimiter=";" if bnetza else ",", strict=True)
