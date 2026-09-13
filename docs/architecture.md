@@ -60,3 +60,20 @@ by, and it travels on the canonical district projection together with the
 population reference year, the energy reporting year and the charging-register
 snapshot date. Version `nrw-2026.09.1` replaced an unversioned model that
 normalized station density and weighted composites from unrounded components.
+
+## Operational boundaries
+
+The supported lifecycle is the `uv run python -m scripts.project_stack ...`
+workflow documented in [local setup](local_setup.md). It creates canonical
+runtime snapshots from the published PostGIS views; neither the browser nor a
+separate Python dashboard recalculates scores. `catalog/data_sources.csv` and
+`catalog/nrw_infrastructure_sources.csv` are the source registry, while each
+runtime manifest records the exact source dates, hashes, feature counts, bounds
+and formula version used for an export.
+
+The system is local-first. Service ports bind to loopback; official station
+data are read-only; the only write path is the local proposed-station scenario.
+Scenario results are a comparison aid, not a future-demand forecast or an
+engineering siting decision. See the current [professor demonstration and
+handover](operational_handover.md) for the supported workflow,
+limitations, recovery procedure, and deferred research.

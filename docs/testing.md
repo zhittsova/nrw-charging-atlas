@@ -22,9 +22,9 @@ pytest paths by `scripts.run_postgis_tests`, so a missing test discovery cannot
 turn the job green.
 
 The Ruff baseline intentionally covers syntax, import/name errors and related
-runtime-affecting checks (`E4`, `E7`, `E9`, and `F`, apart from legacy unused
-imports/locals). Broader formatting and cleanup are deliberately separate from
-this CI milestone.
+runtime-affecting checks (`E4`, `E7`, `E9`, and `F`), with the configured
+compatibility allowance for existing unused imports/locals. Broader formatting
+and cleanup are deliberately separate from this CI milestone.
 
 ## Unit suite
 
@@ -48,8 +48,8 @@ uv run python -m scripts.run_postgis_tests
 ```
 
 This starts a randomly named `nrw_test_<id>` PostGIS database on its own
-explicit `127.0.0.1:<random-port>` endpoint, runs the six SQL integration
-modules (currently 64 tests), then forcibly removes only its container and its
+explicit `127.0.0.1:<random-port>` endpoint, runs the runner's nine explicit
+SQL integration modules, then forcibly removes only its container and its
 uniquely named temporary data volume. It does not use the project database.
 The command is required integration coverage: a missing Docker daemon, `psql`,
 image, or database readiness is an error, not a skip.

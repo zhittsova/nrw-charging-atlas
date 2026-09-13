@@ -50,7 +50,7 @@ def fetch_row(row: dict[str, str], *, include_large: bool, refresh: bool) -> tup
     strategy = row["fetch_strategy"]
     if strategy == "eurostat_population_snapshot":
         from config_utils import read_simple_region_config
-        from generate_nrw_frontend_data import load_nrw_regions
+        from nrw_raw_inputs import load_nrw_regions
         from load_nrw_population_postgis import fetch_population_snapshot
 
         config = read_simple_region_config(ROOT / "config" / "regions" / "nrw.yml")
@@ -74,7 +74,7 @@ def fetch_row(row: dict[str, str], *, include_large: bool, refresh: bool) -> tup
     url = discover_bnetza_csv(row["source_url"]) if strategy == "discover_bnetza_csv" else row["source_url"]
     source_date_from_file = None
     if strategy == "discover_bnetza_csv":
-        from generate_nrw_frontend_data import CHARGER_PREAMBLE_ROWS, parse_charger_snapshot_date
+        from nrw_raw_inputs import CHARGER_PREAMBLE_ROWS, parse_charger_snapshot_date
 
         def source_date_from_file(path: Path) -> str | None:
             with path.open(encoding="cp1252", errors="replace") as source:

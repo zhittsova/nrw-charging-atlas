@@ -132,7 +132,7 @@ def read_raw_seed_snapshot() -> tuple[list[dict], list[dict], dict[str, str] | N
     frontend export share the same source parsing and charger quality gate,
     without making either stage depend on the other.
     """
-    from generate_nrw_frontend_data import load_nrw_chargers, load_nrw_regions
+    from nrw_raw_inputs import load_nrw_chargers, load_nrw_regions
     from config_utils import read_simple_region_config
     from nrw_charger_quality import assert_reconciled, classify_chargers
 
