@@ -1,66 +1,124 @@
 # Local setup
 
-Install Python 3.11 or newer, `uv`, Docker with Compose, and Git. Allocate four
-CPUs and 4 GiB RAM to Docker for the local worker profile. On an 8 GiB Mac,
-allocating 7 GiB to Docker leaves too little RAM for macOS and the browser and
-can cause severe swapping and WFS timeouts.
+## Requirements
+
+- Git, Python 3.11 or newer and uv.
+- Docker with Compose 2.24.4 or newer, four CPUs and a 4 GiB memory allocation.
+- Internet access for the first bootstrap and enough disk space for container
+  images, databases and roughly 1 GB of raw inputs.
+
+Keep memory available for the host and browser. On an 8 GiB Mac, allocating
+nearly all RAM to Docker can cause swapping and WFS timeouts. The local profile
+bounds web and task workers and uses amd64 GeoNode images on Apple Silicon.
+
+## First installation
 
 ```bash
-uv sync
+git clone https://github.com/zhittsova/nrw-charging-atlas.git
+cd nrw-charging-atlas
+uv sync --frozen
 uv run python -m scripts.project_stack bootstrap
 ```
 
-`bootstrap` provisions the local GeoNode checkout, starts the stack, downloads
-the public inputs, rebuilds `nrw_gis`, exports the canonical dashboard
-snapshots, publishes the layers, and runs the project verifier. Use `bootstrap
---skip-download` only when `data/raw` already contains the required source
-files.
+Bootstrap checks Docker resources, clones the pinned GeoNode source, generates
+private configuration, builds and starts the services, fetches the public inputs,
+seeds PostGIS, exports canonical snapshots, publishes the layers and verifies
+the result. It does not require manual dataset uploads.
 
-## Everyday commands
+The dashboard is at http://localhost:8081, GeoNode at http://localhost:8000 and
+GeoServer at http://localhost:8080/geoserver. All service ports bind to loopback.
+The first image build and data import can take tens of minutes on a small
+Docker VM. Later starts reuse the images and data.
+
+Configuration is generated in `geonode/.env` with owner-only permissions.
+Initialization also prepares build exclusions so local credentials, Git metadata
+and generated Python caches stay out of the GeoNode image build.
+Existing passwords are retained when initialization is repeated. Local GeoNode
+administrator credentials are in that file; inspect them locally when signing
+in to the catalogue. Keep the file private. Source downloads, runtime exports
+and Docker volumes are local state and do not belong in Git.
+
+## Docker Compose
+
+The root `docker-compose.yaml` includes the pinned upstream stack and the
+project overrides. The root `Dockerfile` has `frontend` and `etl` targets;
+the frontend is the default build target. Python lifecycle commands use the
+same root Compose file.
+
+Prepare configuration before using Compose on a fresh clone:
 
 ```bash
-uv run python -m scripts.project_stack start
-uv run python -m scripts.project_stack rebuild
+uv run python -m scripts.project_stack init
+docker compose config --quiet
+```
+
+Initialization alone does not download source datasets or seed the database.
+Run `bootstrap` once for a complete installation. After that, direct service
+commands are available from the repository root:
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail 100 geoserver
+docker compose stop
+```
+
+The project `start` command also checks resources and waits for service health.
+`rebuild` rebuilds both project images without cache and recreates containers
+while preserving named volumes. To build the project images without starting
+services:
+
+```bash
+docker compose --profile tools build frontend nrw-etl
+```
+
+Compose uses its [include mechanism](https://docs.docker.com/reference/compose-file/include/)
+to preserve upstream paths and environment settings. The project overrides also
+use `!override`, which requires Compose 2.24.4 or newer.
+
+## Update source data
+
+```bash
 uv run python -m scripts.project_stack fetch
 uv run python -m scripts.project_stack seed
 uv run python -m scripts.project_stack export
 uv run python -m scripts.project_stack publish
 uv run python -m scripts.project_stack verify
-uv run python -m scripts.project_stack status
-uv run python -m scripts.project_stack stop
 ```
 
-The dashboard is at `http://localhost:8081`, GeoNode at
-`http://localhost:8000`, and GeoServer at
-`http://localhost:8080/geoserver`.
+`fetch` reuses files only when their recorded identity and checksums validate.
+Use `fetch --refresh` to retrieve fresh inputs explicitly. `bootstrap
+--skip-download` skips fetching and requires a complete valid local cache.
 
-`geonode/.env`, raw downloads, generated outputs, and Docker volumes are
-local state. Do not commit them. `stop` preserves volumes. `docker compose
-down -v` removes persistent GeoNode and PostGIS data.
+`seed` refreshes the project data in one transaction and preserves proposed
+stations. If validation or import fails, previously published data remain
+available. `export` reads the five canonical views in one repeatable-read
+transaction and replaces `data/runtime/current/` only after the complete set
+passes validation. The frontend mounts that directory read-only; full snapshots
+are not copied into its image.
 
-`export` reads one repeatable-read transaction from the five canonical
-`publish` views and atomically replaces `data/runtime/current/`. It writes the
-five `/data/*.geojson` fallback files and `manifest.json`; the frontend serves
-that ignored directory directly, so no snapshot is copied into an image. The
-renewable fallback contains only operating `Windenergie` and `Photovoltaik
-Freifläche` records. It does not change the raw renewable inventory or district
-analytical totals.
+The renewable display export contains operating wind and ground-mounted solar.
+District renewable totals use the broader analytical inventory. This distinction
+is documented in the dashboard and [source guide](data_sources.md).
 
-The project CLI is the only supported Compose entry point. The root
-`docker-compose.yml` is retired and must not be used. `start` builds changed
-images; `rebuild` uses `--no-cache` and recreates containers without removing
-named volumes. Before startup it reports Docker memory and disk use, and stops
-if Docker reports less than 3.5 GiB usable RAM (allowing guest overhead in a
-4 GiB VM) or fewer than four CPUs. The local override bounds uWSGI to one-two
-workers, normal Celery tasks to one-two workers, and harvesting to zero-one
-workers. Both task queues remain available. Local service ports bind only to loopback.
+## Troubleshooting
 
-Run the Python and frontend checks listed in the root README before changing
-the project.
+| Symptom | Check |
+| --- | --- |
+| Compose reports missing files or configuration | Run `uv run python -m scripts.project_stack init` first. |
+| Compose rejects `include` or `!override` | Check `docker compose version`; use 2.24.4 or newer. |
+| Docker resource check fails | Allocate four CPUs and 4 GiB RAM, leaving memory for the host. |
+| A service cannot bind its port | Check ports 8000, 8080, 8081, 8443 and 5433 for another installation. |
+| GeoServer is still starting | Inspect `docker compose logs --tail 100 geoserver` and `docker compose ps`. |
+| Source retrieval fails | Retry `fetch`; incomplete or mismatched files are validated before reuse. |
+| Dashboard shows a snapshot or unavailable data | Inspect service health, then run `export`, `publish` and `verify` as needed. |
+
+Use `stop` for normal shutdown. `docker compose down -v` deletes persistent
+volumes, including databases and proposals. Do not use it for a normal restart.
 
 ## Backup and restore
 
-S19 provides a local, restricted backup tool. It captures a logical dump of
+The backup tool captures a logical dump of
 the integrated PostGIS cluster (both project and GeoNode databases and roles),
 the GeoServer data directory, media/static state, shared data and generated
 nginx configuration/certificates, the local environment configuration, and the
@@ -95,4 +153,4 @@ after its evidence is recorded, using Docker commands that name that exact
 `nrw-restore-*` project and its volumes. The operator owns retention: keep at
 least one recently verified backup, verify a newer backup before discarding a
 known-good older one, and never place backups or their manifests in Git or
-`specs/`.
+other shared directories.

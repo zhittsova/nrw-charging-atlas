@@ -74,6 +74,6 @@ and formula version used for an export.
 The system is local-first. Service ports bind to loopback; official station
 data are read-only; the only write path is the local proposed-station scenario.
 Scenario results are a comparison aid, not a future-demand forecast or an
-engineering siting decision. See the current [professor demonstration and
-handover](operational_handover.md) for the supported workflow,
+engineering siting decision. See the current [demonstration and
+operation](operational_handover.md) for the supported workflow,
 limitations, recovery procedure, and deferred research.
