@@ -15,6 +15,9 @@ from unittest.mock import MagicMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "geonode_stack.py"
+UPSTREAM_HEALTHCHECK_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "geonode_5_1_geoserver_healthcheck.yml"
+)
 
 
 def load_module():
@@ -341,12 +344,16 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         aborts `geonode_stack start`. Only the timings are overridden here; the
         upstream probe itself must survive the merge.
         """
-        upstream = (ROOT / "geonode" / "docker-compose.yml").read_text()
+        # The ignored upstream checkout is intentionally unavailable to normal
+        # unit runs.  This compact, tracked fixture records the pinned GeoNode
+        # 5.1 healthcheck contract that the project override must extend.
+        upstream = UPSTREAM_HEALTHCHECK_FIXTURE.read_text(encoding="utf-8")
         override = (
             ROOT / "config" / "geonode" / "docker-compose.nrw-project.yml"
         ).read_text()
 
         self.assertIn("start_period: 60s", upstream)
+        self.assertIn("http://geoserver:8080/geoserver/ows", upstream)
         block = re.search(
             r"^    healthcheck:\n((?:^      .+\n)+)", override, re.MULTILINE
         )

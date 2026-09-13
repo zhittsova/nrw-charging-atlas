@@ -2,6 +2,30 @@
 
 Use the commands below from the repository root after `uv sync`.
 
+## Required CI checks
+
+GitHub Actions runs these independent required jobs on pushes and pull requests:
+
+```bash
+uv run ruff check .
+uv run pytest -q tests --ignore=tests/integration
+cd frontend && npm ci && npm test && npm run build
+uv run python -m scripts.run_postgis_tests
+```
+
+Python dependencies are installed with `uv sync --frozen --all-groups` and
+frontend dependencies with `npm ci`, so the committed lockfiles are the CI
+inputs. The PostGIS job starts a fresh labelled container and volume; it does
+not require `data/raw`, `data/runtime`, a GeoNode checkout, a local `.env`, or
+any ignored personal fixture. Its integration modules are passed as explicit
+pytest paths by `scripts.run_postgis_tests`, so a missing test discovery cannot
+turn the job green.
+
+The Ruff baseline intentionally covers syntax, import/name errors and related
+runtime-affecting checks (`E4`, `E7`, `E9`, and `F`, apart from legacy unused
+imports/locals). Broader formatting and cleanup are deliberately separate from
+this CI milestone.
+
 ## Unit suite
 
 ```bash
@@ -63,10 +87,59 @@ and differently addressed targets.
 ## Optional running-stack checks
 
 ```bash
-uv run pytest -q tests/integration/test_geonode_foundation.py
+# Prepare persistent deployment state here, outside every Actions workspace.
+# Use the full commit SHA that will be dispatched; do not run the verifier from
+# this checkout, because its state is intentionally rejected as non-disposable.
+DEPLOYMENT_ROOT=/opt/nrw-full-stack/deployment
+REVISION="<full commit SHA to verify>"
+cd "$DEPLOYMENT_ROOT"
+git checkout --detach "$REVISION"
+REVISION="$(git rev-parse HEAD)"
+uv run python -m scripts.project_stack bootstrap
+printf '%s\n' "$REVISION" > revision
+
+# Clone a separate, disposable tracked-source checkout for verification. This
+# clone contains no generated deployment state. Remove VERIFY_ROOT afterwards.
+VERIFY_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nrw-full-stack-verify.XXXXXX")"
+git clone --no-checkout "$DEPLOYMENT_ROOT" "$VERIFY_ROOT"
+git -C "$VERIFY_ROOT" checkout --detach "$REVISION"
+(
+  cd "$VERIFY_ROOT"
+  uv sync --frozen --all-groups
+  GEONODE_INTEGRATION=1 uv run python -m scripts.run_full_stack_checks --enabled \
+    --geonode-env-file "$DEPLOYMENT_ROOT/geonode/.env" \
+    --runtime-root "$DEPLOYMENT_ROOT/data/runtime" \
+    --deployment-revision-file "$DEPLOYMENT_ROOT/revision" \
+    --expected-revision "$REVISION"
+)
 ```
 
-Without `GEONODE_INTEGRATION=1`, these three running-stack tests report as
-skipped. To opt in, run the same command with `GEONODE_INTEGRATION=1` only
-against a deliberately running local stack. A skip is not full-stack
+This path is intentionally opt-in: it needs a deliberately bootstrapped,
+healthy local stack (including generated runtime assets and the local source
+inputs required by bootstrap). It runs the GeoNode foundation checks and the
+public end-to-end verifier, whose proposal mutation is owned and cleaned up by
+request ID. `uv run python -m scripts.run_full_stack_checks` without
+`--enabled` reports `SKIPPED`; it never calls that state a pass. Passing
+`--enabled` without `GEONODE_INTEGRATION=1`, or with an unhealthy stack,
+reports `FAILED` and returns nonzero.
+
+For self-hosted Actions, `/opt/nrw-full-stack/deployment` is the required
+preserved deployment/configuration checkout, not an Actions workspace. Before
+dispatching a revision, the operator must check out that exact SHA there and
+prepare its `geonode/.env`, `data/runtime/`, and `revision` file; `revision`
+must contain the resolved exact SHA being dispatched. Manual verification must
+likewise run from a separate disposable source checkout, with the deployment
+paths passed as external state; running it from the deployment checkout is
+rejected by design. The workflow deliberately performs a clean checkout in its
+separate Actions workspace and passes all three external paths explicitly: the foundation test receives
+`GEONODE_ENV_FILE`, and the end-to-end verifier receives `--runtime-root`. It
+rejects a missing path, a path inside the disposable checkout, or a revision
+mismatch before probing the stack. Keep deployment configuration and generated
+inputs outside GitHub Actions' workspace; never test Actions cleanup against a
+user installation.
+
+The workflow has the same path as a manually dispatched `full-stack` job, but
+only on a self-hosted runner labelled `nrw-full-stack` that an operator has
+prepared with the required external state. Routine hosted CI deliberately does
+not download large source archives or invent an environment for this optional
 acceptance.

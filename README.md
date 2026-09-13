@@ -38,6 +38,7 @@ GeoServer: http://localhost:8080/geoserver
 
 ```bash
 uv run pytest -q tests --ignore=tests/integration
+uv run ruff check .
 uv run python -m scripts.run_postgis_tests
 
 cd frontend
@@ -45,9 +46,11 @@ npm test -- --run
 npm run build
 ```
 
-The first command is the isolated unit suite; the second creates and removes
-its own disposable PostGIS resources. See [testing](docs/testing.md) for
-optional running-stack checks and failure/skip behavior.
+The first command is the isolated unit suite; the second enforces the checked
+Python baseline; the third creates and removes its own disposable PostGIS
+resources. See [testing](docs/testing.md) for the CI matrix and optional
+running-stack checks, including the required preserved external state and
+revision match for the self-hosted path.
 
 ## Backup and isolated restore
 
