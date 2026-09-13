@@ -23,6 +23,10 @@ SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'scenario_user', :'scenar
 SELECT format('CREATE DATABASE %I OWNER %I', :'database_name', :'owner_user')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'database_name')
 \gexec
+-- GeoServer reads the statewide scenario view through this role.  PostgreSQL
+-- JIT setup alone can consume most of the bounded UI request budget; keep the
+-- setting scoped to the read-only application role and project database.
+SELECT format('ALTER ROLE %I IN DATABASE %I SET jit = off', :'publish_user', :'database_name') \gexec
 """
 
 
@@ -32,8 +36,20 @@ SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'database_name') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'owner_user') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'publish_user') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON SCHEMA publish FROM %I', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA publish FROM %I', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON SCHEMA publish FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA publish FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA publish FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON SCHEMA scenario FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA scenario FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA scenario FROM %I', :'scenario_user') \gexec
 SELECT format('GRANT USAGE ON SCHEMA publish TO %I', :'publish_user') \gexec
 SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA publish TO %I', :'publish_user') \gexec
+SELECT format(
+  'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA publish REVOKE ALL ON TABLES FROM %I',
+  :'owner_user', :'publish_user'
+) \gexec
 SELECT format(
   'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA publish GRANT SELECT ON TABLES TO %I',
   :'owner_user', :'publish_user'
@@ -45,6 +61,8 @@ SELECT format(
 ) \gexec
 SELECT format('REVOKE ALL ON SCHEMA raw, staging, analytics FROM %I', :'publish_user') \gexec
 SELECT format('REVOKE ALL ON SCHEMA raw, staging, analytics FROM %I', :'scenario_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA raw, staging, analytics FROM %I', :'publish_user') \gexec
+SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA raw, staging, analytics FROM %I', :'scenario_user') \gexec
 """
 
 

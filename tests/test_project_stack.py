@@ -71,6 +71,12 @@ class ProjectStackTest(unittest.TestCase):
             ],
         )
 
+    @patch("project_stack.run_etl")
+    def test_export_uses_the_ephemeral_etl_container(self, run_etl) -> None:
+        project_stack.export_runtime()
+
+        run_etl.assert_called_once_with("scripts/export_nrw_runtime.py")
+
     @patch("project_stack.subprocess.run")
     @patch("project_stack.geonode_stack.project_database_name", return_value="nrw_test")
     def test_publish_uses_module_invocation_and_configured_database(self, database_name, run) -> None:
@@ -91,6 +97,7 @@ class ProjectStackTest(unittest.TestCase):
 
     @patch("project_stack.provision_layers")
     @patch("project_stack.verify_project")
+    @patch("project_stack.export_runtime")
     @patch("project_stack.seed_database")
     @patch("project_stack.fetch_data")
     @patch("project_stack.geonode_stack.start_stack")
@@ -101,6 +108,7 @@ class ProjectStackTest(unittest.TestCase):
         start_stack,
         fetch_data,
         seed_database,
+        export_runtime,
         verify_project,
         provision_layers,
     ) -> None:
@@ -109,6 +117,7 @@ class ProjectStackTest(unittest.TestCase):
         manager.attach_mock(start_stack, "start")
         manager.attach_mock(fetch_data, "fetch")
         manager.attach_mock(seed_database, "seed")
+        manager.attach_mock(export_runtime, "export")
         manager.attach_mock(provision_layers, "publish")
         manager.attach_mock(verify_project, "verify")
 
@@ -116,7 +125,7 @@ class ProjectStackTest(unittest.TestCase):
 
         self.assertEqual(
             manager.mock_calls,
-            [call.checkout(), call.start(), call.fetch(), call.seed(), call.publish(), call.verify()],
+            [call.checkout(), call.start(), call.fetch(), call.seed(), call.export(), call.publish(), call.verify()],
         )
 
 

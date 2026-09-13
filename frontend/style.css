@@ -34,7 +34,7 @@ p { margin-bottom:14px; }
 .workspace-heading h2 { margin-bottom:5px; }
 .workspace-heading p { margin-bottom:0; color:var(--muted); }
 .data-quality-note { background:#fff8e8; border-left:3px solid #ab760d; padding:12px 16px; font-size:14px; margin:-8px 0 0; }
-.kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); border:1px solid var(--line); background:white; }
+.kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); border:1px solid var(--line); background:white; }
 .kpi-card { padding:14px 18px; border-right:1px solid var(--line); min-width:0; }
 .kpi-card:last-child { border-right:0; }
 .kpi-card span { display:block; font-size:13px; color:var(--muted); }
@@ -206,10 +206,22 @@ button:hover { background:#14324b; border-color:#65b3ff; }
 .leaflet-control-layers,.leaflet-popup-content-wrapper,.leaflet-popup-tip,.leaflet-tooltip,.renewable-legend {
   background:#0c1c2b; color:#e7eef6; border-color:#476078;
 }
+/* Leaflet's production stylesheet can load after the app bundle. Scope popup
+   surfaces through the map container so its white fallback cannot leave the
+   neon heading on a white card. */
+.leaflet-container .leaflet-popup-content-wrapper,
+.leaflet-container .leaflet-popup-tip {
+  background:#0c1c2b;
+  color:#e7eef6;
+}
+.leaflet-container .station-popup { color:#e7eef6; }
+.leaflet-container .station-popup h3 { color:#9be7ff; }
 .leaflet-bar a { background:#0c1c2b; color:#e7eef6; border-color:#476078; }
 .leaflet-bar a:hover { background:#14324b; color:white; }
-.leaflet-control-attribution { background:#0c1c2bee !important; color:#a4b6c8; }
-.leaflet-control-attribution a { color:#91caff; }
+/* Leaflet's stylesheet can be emitted after this bundle; map-scoped important
+   foregrounds keep both OSM and GISCO acknowledgements readable on dark maps. */
+#map .leaflet-control-attribution { background:#0c1c2bee !important; color:#d6e7f5 !important; }
+#map .leaflet-control-attribution a { color:#9be7ff !important; }
 #map { background:#09131d; }
 .visible-methods .methodology-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
 .visible-methods .methodology-list section { padding:14px 0 0; }
@@ -230,3 +242,240 @@ button:hover { background:#14324b; border-color:#65b3ff; }
 .infrastructure-breakdown ul { padding-left:20px; }
 .infrastructure-breakdown li { margin-bottom:10px; }
 @media(max-width:980px) { .infrastructure-breakdown { grid-template-columns:1fr; gap:12px; } }
+
+
+/* Map-first workspace with an embedded key for visible layers. */
+.command-grid > .map-shell { grid-column:1; grid-row:1; }
+.command-grid > .right-stack { grid-column:2; grid-row:1; }
+.command-grid > .left-stack { grid-row:2; }
+.ranking-list { max-height:230px; }
+.region-panel { order:-1; }
+.map-legend { background:#0c1c2bf5; color:#e7eef6; border:1px solid #476078; border-radius:6px; max-width:310px; max-height:320px; overflow:auto; padding:8px 12px; font-size:12px; }
+.map-legend summary { font-size:13px; padding:4px 0; }
+.map-legend .district-legend { padding:8px 0; gap:6px 12px; }
+.map-legend [hidden] { display:none; }
+#overlay-legend { display:grid; gap:6px; padding-top:8px; }
+#overlay-legend span { display:flex; gap:8px; align-items:center; }
+#overlay-legend i { flex:0 0 12px; width:12px; height:12px; background:var(--symbol-color); border:1px solid white; border-radius:50%; }
+#overlay-legend .legend-line { height:3px; border:0; border-radius:0; }
+#overlay-legend .legend-proposal { border:2px dashed white; }
+#overlay-legend small { color:var(--muted); line-height:1.4; }
+.site-evidence { border-left:3px solid #39d0b3; padding-left:12px; margin:16px 0; }
+.site-evidence h4 { margin:0 0 8px; font-size:14px; }
+.site-evidence p { font-size:13px; margin-bottom:8px; }
+.site-evidence small { color:var(--muted); font-size:12px; }
+.site-next-step summary { font-size:14px; }
+.site-next-step p { font-size:13px; }
+@media(max-width:760px) {
+ .command-grid > .map-shell,.command-grid > .right-stack,.command-grid > .left-stack { grid-column:1; grid-row:auto; }
+ .map-legend { max-width:245px; max-height:210px; }
+}
+
+
+/* Editorial hierarchy: purpose, evidence, then detail. */
+:root { --muted:#b3c2d1; }
+body { font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+h1,h2,h3 { text-wrap:balance; letter-spacing:-.025em; }
+p,li,small { text-wrap:pretty; }
+.app-main { gap:30px; }
+.section-kicker { margin:0 0 12px; color:#8ce3c6; font-size:11px; font-weight:750; letter-spacing:.16em; text-transform:uppercase; }
+.project-intro { max-width:none; padding:clamp(24px,4vw,52px); background:#0e2030; border:1px solid #30495e; border-radius:16px; margin-top:20px; }
+.project-intro h2 { max-width:760px; font-size:clamp(28px,3.1vw,42px); line-height:1.15; margin-bottom:24px; }
+.project-intro > p:not(.section-kicker):not(.planning-limit) { max-width:74ch; color:#c0cedb; line-height:1.8; }
+.project-intro .intro-lead { font-size:clamp(19px,2vw,24px); line-height:1.5; color:#f2f7fc; }
+.intro-lead strong { color:#9ce9d1; }
+.intro-facts { gap:16px; margin:28px 0; padding:0; border:0; }
+.intro-facts > p { background:#091724; border:1px solid #2b4255; border-radius:10px; padding:22px; margin:0; color:#bacbda; line-height:1.75; }
+.fact-label { display:block; color:#f1f6fb; font-size:16px; margin-bottom:10px; }
+.planning-limit { padding:18px 22px; border-left:3px solid #e1bb72; border-radius:0 8px 8px 0; background:#25251f; color:#e0d5bc; line-height:1.75; }
+.planning-limit > strong { display:block; color:#f6dfaf; margin-bottom:5px; }
+.methodology-panel,.sources-panel { padding:clamp(22px,3vw,40px); background:#0b1926; box-shadow:none; }
+.methodology-panel > .panel-heading h2,.sources-panel > .panel-heading h2 { font-size:clamp(23px,2.3vw,30px); }
+.methodology-panel > .panel-heading { flex-wrap:wrap; margin-bottom:20px; }
+.method-intro { max-width:85ch; font-size:15px; line-height:1.8; margin-bottom:28px; }
+.method-intro > strong { color:#fff; }
+.visible-methods .methodology-list { grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+.visible-methods .methodology-list > section { padding:24px; border:1px solid #30495e; border-radius:12px; background:#122536; }
+.methodology-list h3 { font-size:20px; color:#f1f6fb; margin-bottom:8px; }
+.methodology-list .indicator-purpose { font-size:14px; color:#b5ccdf; margin-bottom:20px; }
+.methodology-list section > p:not(.indicator-purpose) { padding:14px 16px; background:#091724; border-radius:8px; line-height:2.1; margin-bottom:18px; color:#a5b8c9; }
+.methodology-list p strong { color:#9ce9d1; font-weight:650; }
+.methodology-list small { display:block; font-size:14px; line-height:1.75; color:#bdcbd8; }
+.indicator-comparison { background:#132d42; border:1px solid #365d7b; border-left:4px solid #7ac4ff; border-radius:10px; padding:24px; margin-top:24px; }
+.indicator-comparison h3 { font-size:20px; color:#e9f5ff; }
+.indicator-comparison p { max-width:95ch; color:#c2d4e3; line-height:1.8; }
+.indicator-comparison strong { color:#fff; }
+.method-details { padding:18px 22px; background:#0f2131; border:1px solid #30495e; border-radius:10px; }
+.method-details summary { color:#d6edff; font-size:16px; line-height:1.6; }
+.method-details > p { max-width:90ch; color:#bdcbd8; line-height:1.8; }
+.infrastructure-breakdown > section { border-top:2px solid #46708e; padding-top:18px; }
+.source-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:24px 0; }
+.source-list li { background:#112435; border:1px solid #2b4255; border-radius:8px; padding:18px 20px; }
+.source-list strong { color:#e9f4fd; font-size:15px; margin-bottom:7px; }
+.source-list span { font-size:14px; line-height:1.7; }
+.source-note { line-height:1.7; overflow-wrap:anywhere; }
+.panel-heading h2 { font-weight:700; }
+.detail-title { padding:8px 0 16px; border-bottom:1px solid var(--line); }
+.detail-title h3 { font-size:23px; }
+.detail-metric { padding:12px; background:#102638; border:1px solid #2b4357; border-radius:8px; }
+.detail-metric span { font-size:12px; line-height:1.5; margin-bottom:7px; }
+.detail-metric strong { font-size:21px; color:#f2f7fc; font-variant-numeric:tabular-nums; }
+.detail-evidence { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+.detail-evidence summary { cursor:pointer; color:#d6edff; font-weight:700; }
+.detail-evidence h4 { margin:18px 0 8px; font-size:14px; color:#d6edff; }
+.detail-note { color:var(--muted); font-size:13px; line-height:1.6; }
+.detail-bounds { margin:0; padding-left:18px; columns:2; column-gap:24px; font-size:12px; line-height:1.55; }
+.detail-bounds li { break-inside:avoid; margin-bottom:5px; }
+@media(max-width:760px) { .detail-bounds { columns:1; } }
+.site-evidence { padding:16px; background:#102d30; border-radius:0 8px 8px 0; }
+.site-evidence h4 { color:#a4ecd6; margin-bottom:14px; }
+.site-evidence p { line-height:1.65; }
+.site-evidence p > strong { display:block; font-size:25px; line-height:1.3; color:#f0fff9; margin-bottom:4px; }
+.recommendation { padding:16px; background:#152d42; border:1px solid #345774; border-radius:8px; line-height:1.8; color:#d8e7f4; }
+.control-help,.empty-state { line-height:1.75; font-size:14px; }
+.empty-state { padding:16px; border:1px dashed #49647a; border-radius:8px; background:#102333; }
+.question-list strong { font-size:18px; line-height:1.4; margin-bottom:12px; }
+.question-list span { color:#bdcddd; line-height:1.7; }
+.question-list button { padding:22px; }
+.question-list button[aria-pressed="true"] { padding:21px; }
+.kpi-card { padding:20px; }
+.kpi-card strong { font-size:24px; margin-top:10px; }
+.workspace-heading p { max-width:85ch; line-height:1.75; }
+@media(max-width:760px) {
+ .visible-methods .methodology-list,.source-list { grid-template-columns:1fr; }
+ .visible-methods .methodology-list > section { padding:20px; }
+ .project-intro,.methodology-panel,.sources-panel { padding:22px; }
+ .indicator-comparison { padding:20px; }
+ .kpi-card strong { font-size:20px; }
+ .app-main { gap:24px; }
+}
+
+/* Neutral editorial surfaces with one interface accent. */
+body { background:#0b1017; }
+.app-header,.panel,.map-shell,.question-list button,.project-intro { background:#131b25; box-shadow:none; }
+.app-header { border-bottom:1px solid var(--line); }
+.eyebrow,.section-kicker,.project-intro > .section-kicker { color:#aebdcb; }
+.kpi-card:nth-child(n) { border-top:0; }
+.kpi-grid { background:#131b25; box-shadow:none; }
+.kpi-card strong,.intro-lead strong,.methodology-list p strong { color:#edf2f7; }
+.intro-facts > p,.visible-methods .methodology-list > section,.source-list li,.detail-metric { background:#18222d; border-color:#34414f; }
+.planning-limit { background:#1c252e; border-color:#8896a5; color:#c8d1db; }
+.planning-limit > strong,.source-list strong,.methodology-list h3 { color:#edf2f7; }
+.site-evidence { background:#18222d; border-color:#849bad; }
+.site-evidence h4,.site-evidence p > strong { color:#edf2f7; }
+.indicator-comparison,.recommendation,.method-details,.empty-state { background:#18222d; border-color:#34414f; }
+.indicator-comparison h3,.indicator-comparison strong { color:#edf2f7; }
+.question-list button[aria-pressed="true"] { background:#1b2d40; border-color:#79b9e9; box-shadow:none; }
+.primary-action,.scenario-mode-switch .active,.ranking-tab.active { background:#245786; border-color:#79b9e9; }
+
+/* Illumination belongs to district geometry, never to invented flows or hotspots. */
+.map-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.map-style-switch { display:inline-flex; padding:4px; gap:4px; background:#09131e; border:1px solid #34475a; border-radius:9px; }
+.map-style-switch label { position:relative; cursor:pointer; }
+.map-style-switch input { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.map-style-switch span { display:flex; align-items:center; justify-content:center; min-height:40px; padding:8px 14px; border:1px solid transparent; border-radius:6px; font-size:13px; color:#aebdcb; }
+.map-style-switch input:checked + span { background:#1b3854; border-color:#628eae; color:#e0f3ff; box-shadow:0 1px 4px #0005; }
+.map-style-switch input:focus-visible + span { outline:3px solid #8cd8ff; outline-offset:2px; }
+.map-style-switch label:hover span { color:#e0f3ff; }
+@media(max-width:420px) { .map-toolbar { flex-wrap:wrap; } }
+#map.map-illuminated { background:#06152d; }
+.map-illuminated .leaflet-tile-pane { filter:grayscale(1) invert(1) brightness(.55) sepia(.3) hue-rotate(165deg) saturate(1.6); opacity:.5; }
+.map-illuminated .district-boundary { filter:drop-shadow(0 0 2px #3197df99); }
+.map-illuminated .district-boundary:hover { stroke:#d2f8ff; stroke-width:2; }
+.map-illuminated .leaflet-control-layers,.map-illuminated .map-legend { background:#071a30f5; border-color:#335a7a; }
+.map-illuminated .map-legend summary { color:#99dcff; }
+.illumination-note { display:block; flex-basis:100%; color:#afc8db; line-height:1.5; font-size:11px; }
+@media(prefers-reduced-motion:reduce) { .map-illuminated .district-boundary { filter:none; } }
+
+/* Warm emphasis follows district priority bins, not arbitrary point hotspots. */
+.map-illuminated .district-priority-warm { filter:drop-shadow(0 0 5px #efb64eaa); }
+@media(prefers-reduced-motion:reduce) { .map-illuminated .district-priority-warm { filter:none; } }
+
+/* A persistent score key below the map leaves the geography unobstructed. */
+.map-key { background:#101c2a; border-top:1px solid #34475a; padding:16px 20px; }
+.map-key .district-legend { display:block; border:0; padding:0; font-size:12px; }
+.map-key [hidden] { display:none; }
+.score-key-heading,.score-key-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.score-key-heading { margin-bottom:12px; }
+.score-key-heading strong { font-size:14px; }
+.score-key-heading > span { color:#b6c8d8; }
+.map-key .score-ramp { height:16px; border:1px solid #7891a5; border-radius:4px; }
+.score-ticks { display:flex; justify-content:space-between; margin-top:7px; color:#dce8f1; font-variant-numeric:tabular-nums; }
+.score-key-footer { margin-top:12px; color:#b3c4d4; font-size:11px; flex-wrap:wrap; }
+.map-key .score-key-footer span { display:flex; gap:6px; align-items:center; }
+.score-bins { display:flex; flex-wrap:wrap; gap:10px 18px; }
+.layer-key { margin-top:14px; border-top:1px solid #34475a; padding-top:6px; }
+.layer-key summary { font-size:13px; color:#c1d6e7; min-height:40px; }
+.layer-key #overlay-legend { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 20px; font-size:12px; }
+.layer-key #overlay-legend small { grid-column:1/-1; }
+@media(max-width:600px) { .map-key { padding:14px; } .layer-key #overlay-legend { grid-template-columns:1fr; } }
+
+/* Keep Leaflet's expanded SVG and verbose district evidence inside a narrow viewport. */
+.map-shell { overflow:hidden; }
+.detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.detail-metric { min-width:0; overflow-wrap:anywhere; }
+#map.map-basemap-unavailable { background:linear-gradient(145deg,#0d263b,#101827); }
+@media(max-width:760px) { .detail-grid { grid-template-columns:1fr; } }
+
+/* Restrained neon title and score chips tied to the active map scale. */
+.neon-title { color:#b8efff; font-size:clamp(26px,3vw,38px); font-weight:650; letter-spacing:-.035em; text-shadow:0 0 10px #46baff66,0 0 28px #2389e53d; }
+.neon-title span { color:#e1eaff; text-shadow:0 0 12px #8b9dff55,0 0 30px #5e70df33; }
+.ranking-item { grid-template-columns:30px minmax(0,1fr) 54px; gap:10px; }
+.ranking-rank { color:#b4c8e2; font-weight:650; font-variant-numeric:tabular-nums; }
+.ranking-item .ranking-score { background:var(--score-color) !important; color:var(--score-ink); border:1px solid #a9bcd366; border-radius:6px; padding:5px 7px; font-size:15px; font-weight:750; box-shadow:0 2px 7px #0003; }
+@media(forced-colors:active) { .neon-title,.neon-title span { text-shadow:none; } .ranking-item .ranking-score { background:Canvas !important; color:CanvasText; border:1px solid CanvasText; } }
+
+/* Neon typography on the existing dark surfaces. */
+.app-main h1,.app-main h2,.app-main h3,.app-main h4,
+.scenario-dialog h2,.station-popup h3 {
+  color:#9be7ff;
+  text-shadow:0 0 9px #38bdf84d,0 0 22px #258de526;
+}
+.app-main .neon-title,.app-main .neon-title span {
+  color:#b4efff;
+  text-shadow:0 0 10px #46baff66,0 0 28px #2389e53d;
+}
+.visible-methods .methodology-list section > p:not(.indicator-purpose),
+.visible-methods .methodology-list section > p:not(.indicator-purpose) strong {
+  color:#7dffb2;
+  text-shadow:0 0 7px #35ef843d;
+}
+.method-details > p > strong,.infrastructure-breakdown li > strong {
+  color:#7dffb2;
+  text-shadow:0 0 7px #35ef8433;
+}
+@media(forced-colors:active) {
+ .app-main h1,.app-main h2,.app-main h3,.app-main h4,
+ .app-main .neon-title,.app-main .neon-title span,
+ .scenario-dialog h2,.station-popup h3,
+ .visible-methods .methodology-list section > p:not(.indicator-purpose),
+ .visible-methods .methodology-list section > p:not(.indicator-purpose) strong,
+ .method-details > p > strong,.infrastructure-breakdown li > strong {
+   color:CanvasText; text-shadow:none;
+ }
+}
+
+/* Distinct colour accents for the five district comparison cards. */
+.kpi-green { --kpi-accent:#78edc2; --kpi-tint:#10382f; --kpi-border:#317c66; }
+.kpi-blue { --kpi-accent:#87d4ff; --kpi-tint:#11334a; --kpi-border:#39769a; }
+.kpi-purple { --kpi-accent:#ceb0ff; --kpi-tint:#2c2248; --kpi-border:#78609e; }
+.kpi-amber { --kpi-accent:#ffd080; --kpi-tint:#382b18; --kpi-border:#92703c; }
+.kpi-teal { --kpi-accent:#73e5e9; --kpi-tint:#123538; --kpi-border:#357b7f; }
+.kpi-fast-share { --kpi-accent:#ff9ed1; --kpi-tint:#3a1d35; --kpi-border:#8e4f80; }
+.kpi-grid { gap:12px; border:0; background:transparent; box-shadow:none; }
+.kpi-grid .kpi-card { background:var(--kpi-tint); border:1px solid var(--kpi-border); border-top:4px solid var(--kpi-accent); border-radius:10px; }
+.kpi-card strong { color:var(--kpi-accent); }
+.kpi-card span,.kpi-card small { color:#d5deeb; }
+
+/* Compact source credits sit directly on the page background. */
+.information-grid { margin-top:8px; }
+.sources-panel { padding:18px 0 0; background:transparent; border:0; border-top:1px solid var(--line); border-radius:0; box-shadow:none; }
+.sources-panel > .panel-heading { margin-bottom:10px; flex-wrap:wrap; }
+.app-main .sources-panel > .panel-heading h2 { font-size:14px; font-weight:600; letter-spacing:0; color:#b5c3d1; text-shadow:none; }
+.sources-panel .source-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px 28px; margin:0 0 12px; }
+.sources-panel .source-list li { padding:0; border:0; border-radius:0; background:transparent; font-size:12px; line-height:1.65; }
+.sources-panel .source-list strong { display:inline; margin:0; font-size:12px; font-weight:600; color:#bdcad7; }
+.sources-panel .source-list strong::after { content:" — "; font-weight:400; }
+.sources-panel .source-list span { display:inline; color:#a4b3c2; font-size:12px; line-height:1.65; }
+.sources-panel .source-note { margin-bottom:0; color:#9cabbc; font-size:11px; }
+@media(max-width:760px) { .sources-panel .source-list { grid-template-columns:1fr; } }

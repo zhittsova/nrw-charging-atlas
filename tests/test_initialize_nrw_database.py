@@ -20,6 +20,8 @@ class DatabaseInitializationTest(unittest.TestCase):
         self.assertIn("pg_roles", sql)
         self.assertIn("pg_database", sql)
         self.assertIn(":'owner_password'", sql)
+        self.assertIn("ALTER ROLE %I IN DATABASE %I SET jit = off", sql)
+        self.assertIn(":'publish_user'", sql)
         self.assertNotIn("example-secret", sql)
 
     def test_grants_keep_publish_read_only_and_scenario_narrowly_writable(self) -> None:
@@ -27,8 +29,12 @@ class DatabaseInitializationTest(unittest.TestCase):
 
         self.assertIn("GRANT SELECT ON ALL TABLES IN SCHEMA publish", sql)
         self.assertIn("GRANT SELECT, INSERT, DELETE ON scenario.proposed_chargers", sql)
+        self.assertIn("REVOKE ALL ON ALL TABLES IN SCHEMA publish FROM %I", sql)
+        self.assertIn("ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA publish REVOKE ALL ON TABLES FROM %I", sql)
         self.assertNotIn("GRANT UPDATE ON scenario.proposed_chargers", sql)
         self.assertNotIn("GRANT INSERT ON ALL TABLES IN SCHEMA publish", sql)
+        self.assertIn("REVOKE ALL ON ALL TABLES IN SCHEMA publish", sql)
+        self.assertIn("REVOKE ALL ON ALL TABLES IN SCHEMA scenario", sql)
         self.assertIn("REVOKE ALL ON SCHEMA raw, staging, analytics", sql)
 
     def test_database_url_replacement_preserves_credentials_and_port(self) -> None:
@@ -44,6 +50,8 @@ class DatabaseInitializationTest(unittest.TestCase):
 
         self.assertIn("SECURITY DEFINER", schema)
         self.assertIn("SET search_path = pg_catalog, public", schema)
+        self.assertIn("ALTER COLUMN geom_25832 DROP EXPRESSION", schema)
+        self.assertIn("NEW.geom_25832 := ST_Transform(NEW.geom, 25832)", schema)
 
 
 if __name__ == "__main__":

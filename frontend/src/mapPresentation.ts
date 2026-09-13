@@ -5,6 +5,13 @@ export type MapScoreMetric =
   | "infrastructureOpportunityScore";
 
 export type MapScenarioMode = "baseline" | "scenario" | "change";
+export type BasemapState = "available" | "fallback";
+
+export function basemapAvailabilityMessage(state: BasemapState): string {
+  return state === "fallback"
+    ? "Basemap tiles are unavailable. Vector-only fallback is active; district and infrastructure layers remain usable."
+    : "OpenStreetMap basemap tiles are available.";
+}
 
 export const OVERLAY_ORDER = [
   "districts",
@@ -135,9 +142,10 @@ export function renewableTechnologyLabel(technology: string | undefined): string
   return labels[technology ?? ""] ?? (technology?.trim() || "Renewable energy");
 }
 
-export function renewableAssetStyle(technology: string | undefined, capacityMw: number, zoom = 9) {
+export function renewableAssetStyle(technology: string | undefined, capacityMw: number | null, zoom = 9) {
   const scale = zoom <= 7 ? 0.72 : zoom === 8 ? 0.86 : 1;
-  const radius = Math.min(6.2, 2.3 + Math.log10(Math.max(capacityMw, 0) + 1) * 1.45) * scale;
+  const capacity = capacityMw ?? 0;
+  const radius = Math.min(6.2, 2.3 + Math.log10(Math.max(capacity, 0) + 1) * 1.45) * scale;
   return {
     pane: "renewableAssets",
     radius,
@@ -275,22 +283,23 @@ export function scoreColor(
     if (improvement > -10) return "#c026d3";
     return "#be123c";
   }
-  if (score >= 80) return "#084594";
-  if (score >= 65) return "#2171b5";
-  if (score >= 50) return "#6baed6";
-  if (score >= 35) return "#bdd7e7";
-  return "#eff3ff";
+  return interpolateScoreRamp(score, [
+    [0, [242, 247, 255]], [25, [184, 217, 255]], [50, [67, 153, 244]],
+    [75, [89, 53, 194]], [100, [71, 12, 117]]
+  ]);
 }
 
-export function officialStationStyle(maxPointPowerKw: number, zoom = 9) {
-  const highPower = maxPointPowerKw >= 150;
+export function officialStationStyle(maxPointPowerKw: number | null, zoom = 9) {
+  const highPower = maxPointPowerKw !== null && maxPointPowerKw >= 150;
   const scale = zoom <= 7 ? 0.52 : zoom === 8 ? 0.72 : 1;
   return {
     pane: "stations",
     radius: (highPower ? 4 : 2.9) * scale,
-    color: highPower ? "#fff1f2" : "#fce7f3",
+    // Cyan identifies the official network. The warmer yellow is reserved for
+    // a ≥150 kW maximum point power, so it still reads at small map scales.
+    color: highPower ? "#fff7d6" : "#cffafe",
     weight: (highPower ? 1.05 : 0.8) * Math.max(scale, 0.65),
-    fillColor: highPower ? "#f472b6" : "#ec4899",
+    fillColor: highPower ? "#fbbf24" : "#22d3ee",
     fillOpacity: highPower ? 0.98 : 0.9
   };
 }
@@ -298,4 +307,28 @@ export function officialStationStyle(maxPointPowerKw: number, zoom = 9) {
 export function operatorTooltip(operator: string | undefined): string {
   const label = operator?.trim() || "Operator not specified";
   return `<strong>${escapeHtml(label)}</strong><span>Charging-station operator</span>`;
+}
+
+/** Continuous neon-plum-to-mint score ramp shared by district fills and the visible legend. */
+export function illuminatedScoreColor(score: number, mode: MapScenarioMode, metric: MapScoreMetric): string {
+  if (mode === "change") return scoreColor(score, mode, metric);
+  const stops: [number, number[]][] = [
+    [0, [29, 18, 56]], [35, [76, 39, 126]], [50, [163, 57, 181]],
+    [65, [238, 78, 156]], [80, [82, 232, 193]], [100, [186, 255, 211]]
+  ];
+  return interpolateScoreRamp(score, stops);
+}
+
+function interpolateScoreRamp(score: number, stops: [number, number[]][]): string {
+  const bounded = Math.max(0, Math.min(100, score));
+  for (let index = 1; index < stops.length; index += 1) {
+    const [end, to] = stops[index];
+    const [start, from] = stops[index - 1];
+    if (bounded <= end) {
+      const fraction = (bounded - start) / (end - start);
+      return "#" + from.map((channel, i) => Math.round(channel + (to[i] - channel) * fraction)
+        .toString(16).padStart(2, "0")).join("");
+    }
+  }
+  return "#" + stops[stops.length - 1][1].map((channel) => channel.toString(16).padStart(2, "0")).join("");
 }

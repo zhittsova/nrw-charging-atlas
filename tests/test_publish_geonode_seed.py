@@ -9,7 +9,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "publish_geonode_seed.py"
-REAL_SEED = ROOT / "frontend" / "data" / "nrw_regions_sample.geojson"
+
+
+def seed_payload() -> dict:
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"nuts_code": f"DEA{index:02d}", "box": [6.3, 50.3, 6.9, 50.8]},
+                "geometry": {
+                    "type": "MultiPolygon",
+                    "coordinates": [[[[6.3, 50.3], [6.9, 50.3], [6.9, 50.8], [6.3, 50.3]]]],
+                },
+            }
+            for index in range(1, 54)
+        ],
+    }
+
+
+def write_seed(directory: str) -> Path:
+    path = Path(directory) / "nrw_regions_sample.geojson"
+    path.write_text(json.dumps(seed_payload()), encoding="utf-8")
+    return path
 
 
 def load_module():
@@ -34,29 +56,26 @@ class Response:
 
 
 class SeedValidationTest(unittest.TestCase):
-    def test_real_seed_has_53_nrw_multipolygons(self) -> None:
-        """Catches a seed change that drops a district or changes its geometry."""
+    def test_seed_contract_requires_53_nrw_multipolygons(self) -> None:
         module = load_module()
-
-        data = module.validate_seed(REAL_SEED)
+        with tempfile.TemporaryDirectory() as directory:
+            data = module.validate_seed(write_seed(directory))
 
         self.assertEqual(len(data["features"]), 53)
 
-    def test_real_seed_has_each_nrw_nuts3_code_once(self) -> None:
-        """Catches committing a duplicate or non-NUTS3 district as the GeoNode seed."""
+    def test_seed_contract_requires_each_nrw_nuts3_code_once(self) -> None:
         module = load_module()
-
-        data = module.validate_seed(REAL_SEED)
+        with tempfile.TemporaryDirectory() as directory:
+            data = module.validate_seed(write_seed(directory))
         codes = [feature["properties"]["nuts_code"] for feature in data["features"]]
 
         self.assertEqual(len(codes), len(set(codes)))
-        self.assertEqual(sorted(codes)[0], "DEA11")
-        self.assertEqual(sorted(codes)[-1], "DEA5C")
+        self.assertTrue(all(code.startswith("DEA") for code in codes))
 
     def test_seed_rejects_non_nrw_feature(self) -> None:
         """Catches accidentally publishing a district outside NRW."""
         module = load_module()
-        data = json.loads(REAL_SEED.read_text(encoding="utf-8"))
+        data = seed_payload()
         data["features"][0]["properties"]["nuts_code"] = "DE999"
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bad.geojson"
@@ -79,14 +98,15 @@ class SeedValidationTest(unittest.TestCase):
         module = load_module()
         with tempfile.TemporaryDirectory() as directory:
             upload_path = Path(directory) / "nrw_nuts3_districts.geojson"
+            source_path = write_seed(directory)
 
-            module.prepare_upload_seed(REAL_SEED, upload_path)
+            module.prepare_upload_seed(source_path, upload_path)
 
-            original = json.loads(REAL_SEED.read_text(encoding="utf-8"))
+            original = json.loads(source_path.read_text(encoding="utf-8"))
             uploaded = json.loads(upload_path.read_text(encoding="utf-8"))
         self.assertEqual(
             original["features"][0]["properties"]["box"],
-            [6.315555889000052, 50.32301198700003, 6.932190637000076, 50.788968331000035],
+            [6.3, 50.3, 6.9, 50.8],
         )
         self.assertEqual(uploaded["name"], "nrw_nuts3_districts")
         self.assertNotIn("box", uploaded["features"][0]["properties"])
@@ -180,8 +200,8 @@ class UploadExecutionTest(unittest.TestCase):
                 raise AssertionError("an existing dataset must not be uploaded again")
 
         session = ExistingResourceSession()
-
-        result = module.publish_seed(session, "http://localhost:8000", REAL_SEED)
+        with tempfile.TemporaryDirectory() as directory:
+            result = module.publish_seed(session, "http://localhost:8000", write_seed(directory))
 
         self.assertEqual(result, "already-present")
         self.assertEqual(

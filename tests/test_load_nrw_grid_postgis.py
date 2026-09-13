@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +72,27 @@ class GridPreparationTest(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
 
+    def test_reads_real_osmium_type_id_feature_shape(self) -> None:
+        # `osmium export --add-unique-id type_id` emits compact IDs such as
+        # n240272940 at the Feature level, without an @id property.
+        document = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "id": "n240272940",
+                "geometry": {"type": "Point", "coordinates": [6.7913829, 51.2227185]},
+                "properties": {"power": "substation", "source": "survey"},
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "grid.geojson"
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            rows = module.read_grid_geojson(path)
+
+        self.assertEqual(rows[0]["source_id"], "n240272940")
+        self.assertEqual(rows[0]["asset_type"], "substation")
+
     def test_import_is_snapshot_based_and_refreshes_analytics(self) -> None:
         rows = [{
             "source_id": "way/1",
@@ -91,6 +113,15 @@ class GridPreparationTest(unittest.TestCase):
 
         self.assertIn("w/power=line,cable,minor_line", command)
         self.assertIn("nwr/power=substation,transformer", command)
+
+    @patch("load_nrw_grid_postgis.subprocess.run")
+    def test_extraction_requests_type_scoped_ids_for_real_osmium_features(self, run) -> None:
+        module.extract_grid_geojson(Path("source.pbf"), Path("grid.geojson"))
+
+        export_command = run.call_args_list[1].args[0]
+        self.assertEqual(export_command[:2], ["osmium", "export"])
+        identity_option = export_command.index("--add-unique-id")
+        self.assertEqual(export_command[identity_option + 1], "type_id")
 
 
 if __name__ == "__main__":

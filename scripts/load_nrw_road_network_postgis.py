@@ -31,7 +31,16 @@ def extract_road_geojson(source: Path, target: Path) -> None:
         filtered = Path(directory) / "autobahns.osm.pbf"
         subprocess.run(osmium_filter_command(source, filtered), check=True)
         subprocess.run(
-            ["osmium", "export", str(filtered), "--overwrite", "-o", str(target)],
+            [
+                "osmium",
+                "export",
+                str(filtered),
+                "--add-unique-id",
+                "type_id",
+                "--overwrite",
+                "-o",
+                str(target),
+            ],
             check=True,
         )
 

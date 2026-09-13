@@ -31,6 +31,7 @@ INTEGRATION_SUITES = (
     "tests/integration/test_nrw_missing_data_semantics.py",
     "tests/integration/test_nrw_verification_modules.py",
     "tests/integration/test_nrw_score_model.py",
+    "tests/integration/test_database_grants_reconciliation.py",
 )
 
 

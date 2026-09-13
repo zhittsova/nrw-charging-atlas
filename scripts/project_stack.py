@@ -54,6 +54,11 @@ def seed_database(*, population_snapshot: Path | None = POPULATION_SNAPSHOT) -> 
     run_etl("scripts/initialize_nrw_database.py", "--grant-only")
 
 
+def export_runtime() -> None:
+    """Create the canonical fallback set after a successful atomic seed."""
+    run_etl("scripts/export_nrw_runtime.py")
+
+
 def provision_layers() -> None:
     subprocess.run(
         [
@@ -86,6 +91,7 @@ def bootstrap(*, download: bool = True) -> None:
     if download:
         fetch_data()
     seed_database()
+    export_runtime()
     provision_layers()
     verify_project()
 
@@ -116,6 +122,7 @@ def main() -> None:
     fetch_parser = commands.add_parser("fetch", help="reuse validated public source datasets")
     fetch_parser.add_argument("--refresh", action="store_true", help="explicitly replace validated cached sources")
     commands.add_parser("seed", help="rebuild the project database from source snapshots")
+    commands.add_parser("export", help="export canonical dashboard runtime assets from the published database")
     commands.add_parser("publish", help="provision GeoServer layers and synchronize GeoNode")
     commands.add_parser("verify", help="test WFS-T, metric recalculation, cleanup, and catalog publication")
     commands.add_parser("stop", help="stop containers without deleting volumes")
@@ -135,6 +142,8 @@ def main() -> None:
         fetch_data(refresh=args.refresh)
     elif args.command == "seed":
         seed_database()
+    elif args.command == "export":
+        export_runtime()
     elif args.command == "publish":
         provision_layers()
     elif args.command == "verify":

@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
     -- Nullable for proposals that existed before the maximum-point-power
     -- contract.  The trigger below requires it for new inserts.
     max_point_power_kw numeric,
+    -- A browser-generated idempotency key.  It is deliberately nullable for
+    -- proposals saved before WFS-T clients could safely reconcile a timeout.
+    request_id uuid DEFAULT gen_random_uuid(),
     nuts_code text NOT NULL,
     status text NOT NULL DEFAULT 'proposed',
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -103,8 +106,30 @@ CREATE TABLE IF NOT EXISTS scenario.proposed_chargers (
 );
 
 ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS max_point_power_kw numeric;
-ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS geom_25832 geometry(Point, 25832)
-    GENERATED ALWAYS AS (ST_Transform(geom, 25832)) STORED;
+ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS request_id uuid;
+ALTER TABLE scenario.proposed_chargers ALTER COLUMN request_id SET DEFAULT gen_random_uuid();
+-- GeoServer WFS-T writes every discovered geometry attribute.  A generated
+-- companion geometry is therefore not writable even when the client only
+-- supplies `geom`.  Keep the projected column for analytics, but maintain it
+-- in the validation trigger so the WFS-facing table remains insertable.
+ALTER TABLE scenario.proposed_chargers ADD COLUMN IF NOT EXISTS geom_25832 geometry(Point, 25832);
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'scenario'
+          AND table_name = 'proposed_chargers'
+          AND column_name = 'geom_25832'
+          AND is_generated = 'ALWAYS'
+    ) THEN
+        ALTER TABLE scenario.proposed_chargers ALTER COLUMN geom_25832 DROP EXPRESSION;
+    END IF;
+END
+$$;
+UPDATE scenario.proposed_chargers
+SET geom_25832 = ST_Transform(geom, 25832)
+WHERE geom_25832 IS DISTINCT FROM ST_Transform(geom, 25832);
 
 DO $$
 BEGIN
@@ -136,6 +161,11 @@ CREATE INDEX IF NOT EXISTS proposed_chargers_geom_25832_gix
     ON scenario.proposed_chargers USING gist (geom_25832);
 CREATE INDEX IF NOT EXISTS proposed_chargers_nuts_code_idx
     ON scenario.proposed_chargers (nuts_code);
+-- A legacy proposal has no request identifier.  New browser requests must be
+-- unique, which makes an uncertain WFS response safe to reconcile by lookup.
+CREATE UNIQUE INDEX IF NOT EXISTS proposed_chargers_request_id_uq
+    ON scenario.proposed_chargers (request_id)
+    WHERE request_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION scenario.validate_proposed_charger()
 RETURNS trigger
@@ -188,6 +218,7 @@ BEGIN
 
     NEW.nuts_code := matched_nuts_code;
     NEW.status := 'proposed';
+    NEW.geom_25832 := ST_Transform(NEW.geom, 25832);
     RETURN NEW;
 END;
 $$;
@@ -210,6 +241,29 @@ CREATE TABLE IF NOT EXISTS raw.source_snapshots (
     source_name text,
     source_note text,
     recorded_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- A canonical refresh has one immutable identity for every raw input it
+-- consumed.  Runtime exports read this association from the same snapshot as
+-- the analytical views; they must never infer provenance from a subsequently
+-- refreshed local cache.
+CREATE TABLE IF NOT EXISTS raw.ingest_runs (
+    ingest_run_id uuid PRIMARY KEY,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
+    is_current boolean NOT NULL DEFAULT false
+);
+CREATE UNIQUE INDEX IF NOT EXISTS raw_one_current_ingest_run
+    ON raw.ingest_runs (is_current) WHERE is_current;
+
+CREATE TABLE IF NOT EXISTS raw.ingest_source_inputs (
+    ingest_run_id uuid NOT NULL REFERENCES raw.ingest_runs (ingest_run_id) ON DELETE CASCADE,
+    source_key text NOT NULL,
+    source_path text NOT NULL,
+    bytes bigint NOT NULL CHECK (bytes >= 0),
+    sha256 text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    provenance jsonb,
+    provenance_sha256 text,
+    PRIMARY KEY (ingest_run_id, source_key)
 );
 
 CREATE TABLE IF NOT EXISTS raw.population (

@@ -1,4 +1,26 @@
 services:
+  # Upstream sizes these pools for a server (8–128 web workers plus up to
+  # 25 task workers). Keep the local dashboard from competing with macOS and
+  # its browser for RAM; retain both task queues and scale only when needed.
+  django:
+    command: >-
+      uwsgi --ini /usr/src/geonode/uwsgi.ini
+      --processes 2 --cheaper 1 --cheaper-initial 1 --cheaper-step 1
+      --cheaper-busyness-backlog-step 1
+    # Initialization includes migrations/static checks before uWSGI imports the
+    # application. Preserve the upstream probe but allow this work to finish.
+    healthcheck:
+      start_period: 600s
+      interval: 30s
+      retries: 3
+
+  celery:
+    environment:
+      CELERY__AUTOSCALE_VALUES: "2,1"
+      CELERY__WORKER_CONCURRENCY: "2"
+      CELERY__HARVESTER_AUTOSCALE_VALUES: "1,0"
+      CELERY__HARVESTER_CONCURRENCY: "1"
+
   db:
     ports:
       - "127.0.0.1:5433:5432"
@@ -11,6 +33,16 @@ services:
   geoserver:
     ports: !override
       - "127.0.0.1:8080:8080"
+    # Upstream allows about three minutes (start_period 60s, interval 60s, retries 2)
+    # before reporting the webapp unhealthy. A correct local deployment routinely needs
+    # longer than that: Tomcat's TLD/JAR scan alone runs for minutes before GeoServer's
+    # Spring context starts. The upstream deadline therefore marks a healthy stack
+    # unhealthy, which fails `frontend`'s `service_healthy` dependency and aborts
+    # `geonode_stack start`. Only the timings are overridden; the upstream probe stands.
+    healthcheck:
+      start_period: 600s
+      interval: 30s
+      retries: 3
 
   frontend:
     build:
@@ -22,6 +54,8 @@ services:
     depends_on:
       geoserver:
         condition: service_healthy
+    volumes:
+      - ../data/runtime:/usr/share/nginx/html/runtime:ro
 
   nrw-etl:
     profiles:
@@ -41,6 +75,7 @@ services:
       DATABASE_URL: postgresql://${NRW_DATABASE_USER}:${NRW_DATABASE_PASSWORD}@db:5432/${NRW_DATABASE_NAME:-nrw_gis}
     volumes:
       - ../data/raw:/app/data/raw
+      - ../data/runtime:/app/data/runtime
     depends_on:
       db:
         condition: service_healthy
