@@ -1,4 +1,4 @@
-"""Traffic class-zero regressions for S07-R04.
+"""Traffic class-zero regression cases.
 
 The publisher defines no no-data code, so treating a reading as unpublished is
 the project's own inference. It applies to a whole section, not to one vehicle
@@ -46,7 +46,7 @@ class TrafficObservationTest(unittest.TestCase):
                 )
 
     def test_a_zero_heavy_count_on_a_busy_road_survives(self) -> None:
-        """The S07-R04 counterexample: this used to be erased to unknown."""
+        """The Traffic class-zero counterexample: this used to be erased to unknown."""
         total, light, heavy = observe(row("zero_heavy_on_a_busy_road"))
 
         self.assertEqual(total, 100.0)

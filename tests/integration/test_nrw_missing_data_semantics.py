@@ -206,7 +206,7 @@ class EnergyCoverageTest(DisposableSemanticsFixture):
         self.assertEqual(row[2], "missing_required_input")
 
     def test_unknown_capacity_does_not_publish_a_short_district_total(self) -> None:
-        """S07-R01: capacity was gated by generation/wind completeness.
+        """Capacity was gated by generation/wind completeness.
 
         A municipality can report its yield and wind capacity while its total
         technology capacity is unknown; summing over that gap published a short
@@ -441,7 +441,7 @@ class TrafficCoverageTest(DisposableSemanticsFixture):
 
 
 class VoltageTagParsingTest(DisposableSemanticsFixture):
-    """S07-R03: an unsigned substring search read "-110000" as 110 kV."""
+    """An unsigned substring search read "-110000" as 110 kV."""
 
     fixture_sql = ""
 
@@ -523,7 +523,7 @@ class VoltageTagParsingTest(DisposableSemanticsFixture):
 
 
 class GridComponentAvailabilityTest(DisposableSemanticsFixture):
-    """S07-R02: substation proximity carries 45% of the proxy."""
+    """Substation proximity carries 45% of the proxy."""
 
     fixture_sql = """
 INSERT INTO raw.grid_infrastructure (source_id, asset_type, voltage, name, geom) VALUES

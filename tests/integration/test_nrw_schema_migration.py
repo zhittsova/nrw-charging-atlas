@@ -1,11 +1,11 @@
-"""Historical upgrade regressions for S06-R01.
+"""Historical schema upgrade regressions.
 
 The published views fix an explicit public field order. A database upgraded
 from before ``max_point_power_kw`` existed carries that column wherever
 ``ALTER TABLE ADD COLUMN`` appended it, and ``CREATE OR REPLACE VIEW`` cannot
 reorder an existing view's columns. These tests therefore start from a faithful
 reconstruction of the older published layout rather than from a fresh schema,
-which is the coverage the S06 suite was missing.
+including compatibility with the earlier published column layout.
 """
 
 from __future__ import annotations
@@ -42,9 +42,9 @@ PUBLISHED_CHARGER_COLUMNS = [
 ]
 
 # raw.chargers as it stood before the maximum-point-power contract, followed by
-# the additive ALTER that S05 applied. The resulting publish view lists
+# the additive charging-power ALTER. The resulting publish view lists
 # max_point_power_kw last, exactly like an upgraded installation.
-PRE_S05_LAYOUT_SQL = """
+LEGACY_CHARGING_LAYOUT_SQL = """
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE SCHEMA raw;
 CREATE SCHEMA staging;
@@ -111,7 +111,7 @@ CREATE TABLE raw.population (
     reference_year integer, source text
 );
 
--- The S05 upgrade appended the measured connector maximum.
+-- The charging-power upgrade appended the measured connector maximum.
 ALTER TABLE raw.chargers ADD COLUMN max_point_power_kw numeric;
 ALTER TABLE scenario.proposed_chargers ADD COLUMN max_point_power_kw numeric;
 
@@ -191,7 +191,7 @@ class HistoricalPublishedViewUpgradeTest(unittest.TestCase):
             "DROP SCHEMA IF EXISTS raw CASCADE;"
             f"DROP ROLE IF EXISTS {self.reader_role};"
         )
-        self.psql(PRE_S05_LAYOUT_SQL)
+        self.psql(LEGACY_CHARGING_LAYOUT_SQL)
         self.psql(FIXTURE_DATA_SQL)
         self.addCleanup(
             lambda: self.psql(f"DROP ROLE IF EXISTS {self.reader_role};", check=False)

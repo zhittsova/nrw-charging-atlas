@@ -1,4 +1,4 @@
-"""S18 negative contracts for the project end-to-end verifier.
+"""Negative contracts for the project end-to-end verifier.
 
 These tests deliberately use a tiny fake WFS service.  They are not a second
 implementation of the verifier: each fake response represents one broken
@@ -74,7 +74,7 @@ def _feature(layer: str, *, null_score: bool = False, invalid_coverage: bool = F
         "renewable_capacity_mw": 10.0,
         "renewable_installation_count": 1,
         "id": STATION_ID,
-        "name": "owned S18 probe",
+        "name": "owned verifier probe",
         "request_id": REQUEST_ID,
     })
     if layer == "nrw_ev_baseline_metrics":
@@ -137,7 +137,7 @@ class MutationSession:
         self.posts: list[str] = []
         self.deleted: list[str] = []
         self.metrics_reads = 0
-        self.insert_name = "owned S18 probe"
+        self.insert_name = "owned verifier probe"
         self.insert_request_id = REQUEST_ID
 
     def get(self, _url: str, *, params: dict | None = None, timeout: int = 60) -> FakeResponse:
@@ -181,7 +181,7 @@ class MutationSession:
         return FakeResponse(status_code=self.forbidden_status, text="Forbidden")
 
 
-class S18NegativeCasesTest(unittest.TestCase):
+class VerifierNegativeCasesTest(unittest.TestCase):
     def write_runtime_snapshot(
         self,
         root: Path,

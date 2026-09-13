@@ -260,7 +260,7 @@ class PolygonTopologyValidationTest(unittest.TestCase):
                 self.assertEqual(len(accepted) + len(rejected), 1)
 
     def test_a_degenerate_district_no_longer_claims_a_station(self) -> None:
-        """S06 accepted a zero-area district and assigned a station to it."""
+        """The former containment check accepted a zero-area district and assigned a station to it."""
         with self.assertRaisesRegex(ValueError, "DEA01 has invalid geometry"):
             quality.classify_chargers(
                 [charger("at-the-point", 6.0, 50.0)],

@@ -503,7 +503,7 @@ def create_source_probe(frontend_url: str, request_id: str) -> None:
     create_or_reconcile(
         requests.Session(),
         f"{frontend_url.rstrip('/')}/geoserver/ows",
-        f"S19 restore persistence probe {request_id}",
+        f"Restore persistence probe {request_id}",
         request_id,
     )
 
@@ -516,7 +516,7 @@ def cleanup_source_probe(frontend_url: str, request_id: str) -> None:
     try:
         cleanup_owned(requests.Session(), f"{frontend_url.rstrip('/')}/geoserver/ows", request_id)
     except Exception as error:
-        raise RuntimeError(f"Failed to clean run-owned S19 source probe {request_id}") from error
+        raise RuntimeError(f"Failed to clean run-owned restore source probe {request_id}") from error
 
 
 def assert_restored_probe(frontend_url: str, request_id: str) -> None:

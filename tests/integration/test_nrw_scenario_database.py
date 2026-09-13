@@ -17,7 +17,7 @@ DATABASE_URL = os.environ.get("SCENARIO_TEST_DATABASE_URL")
 
 @unittest.skipUnless(DATABASE_URL, "SCENARIO_TEST_DATABASE_URL is not configured")
 class LegacyProposedChargerMigrationDatabaseTest(unittest.TestCase):
-    """Exercise the S05 upgrade against an isolated pre-contract table."""
+    """Exercise the charging-power upgrade against an isolated pre-contract table."""
 
     legacy_id = "123e4567-e89b-12d3-a456-426614174000"
 
