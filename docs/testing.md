@@ -1,6 +1,6 @@
 # Testing
 
-Use the commands below from the repository root after `uv sync`.
+Use the commands below from the repository root after `uv sync --frozen`.
 
 ## Required CI checks
 
@@ -24,7 +24,7 @@ turn the job green.
 The Ruff baseline intentionally covers syntax, import/name errors and related
 runtime-affecting checks (`E4`, `E7`, `E9`, and `F`), with the configured
 compatibility allowance for existing unused imports/locals. Broader formatting
-and cleanup are deliberately separate from this CI milestone.
+and cleanup are deliberately separate from the CI baseline.
 
 ## Unit suite
 

@@ -154,7 +154,7 @@ validated Content-Range; candidates without that identity restart safely.
 Declared transfer lengths and source-format checks run before replacement,
 while the prior final input stays available. Format checks cover CSV headers
 and an initial data row, GeoJSON structure, archive integrity and the OSM PBF
-header; S09 retains full import and domain validation. Registry roles distinguish
+header; the import pipeline retains full domain validation. Registry roles distinguish
 `required_input`, `contextual_input`, and `contextual_unused`; the latter are
 never represented as scoring inputs merely because their files were fetched.
 

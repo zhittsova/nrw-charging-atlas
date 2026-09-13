@@ -1,8 +1,6 @@
-# Operational and professor handover
+# Demonstration and operation
 
-**Current status:** 13 September 2026. This tracked guide is the authoritative
-English handover for the local NRW demonstrator. Historical material in `more/`
-is preserved as provenance, not current instructions.
+Use this guide to demonstrate the district comparisons and local scenario workflow.
 
 ## Purpose and first visit
 
@@ -21,7 +19,7 @@ inputs; PostGIS calculates canonical analytics; GeoServer/GeoNode publish
 layers and catalogue records; and the Leaflet/TypeScript dashboard displays
 results. The browser does not calculate a second score model.
 
-1. From the repository root run `uv sync`, then `uv run python -m
+1. From the repository root run `uv sync --frozen`, then `uv run python -m
    scripts.project_stack bootstrap`. Use `--skip-download` only with a complete
    validated `data/raw/` cache.
 2. Open `http://localhost:8081`; GeoNode is at `http://localhost:8000/datasets`
@@ -101,9 +99,7 @@ For a routine refresh, use those actions in order, or use `bootstrap`.
 `fetch --refresh` replaces a validated cache; `seed` retains prior usable
 published data if validation/import fails; `export` atomically replaces a
 complete canonical runtime set only after a successful seed. `rebuild`
-recreates images without cache while preserving named volumes. The root
-`docker-compose.yml`, pip/`requirements.txt` installs, static preview servers,
-and old Streamlit dashboard are retired and unsupported. If Docker fails, free
+recreates images without cache while preserving named volumes. The root `docker-compose.yaml` provides direct service commands after initialization. If Docker fails, free
 disk/RAM, start Docker, run `status`, then retry the smallest relevant action.
 Do not use `docker compose down -v`: it destroys persistent state. See [local
 setup](local_setup.md) and [testing](testing.md) for lifecycle and verification.
