@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -29,6 +30,25 @@ def load_module():
 
 
 class GeoNodeEnvironmentTest(unittest.TestCase):
+    def test_upstream_build_exclusions_preserve_pin_and_stay_stable(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory)
+            upstream = checkout / ".dockerignore"
+            upstream.write_text("geonode/uploaded\ngeonode/static_root\n", encoding="utf-8")
+            original = upstream.read_bytes()
+            with patch.object(module, "GEONODE_DIR", checkout):
+                module.prepare_upstream_build_context()
+                generated = checkout / "Dockerfile.dockerignore"
+                rules = generated.read_text(encoding="utf-8").splitlines()
+                for excluded in (".git", ".env", ".env.*", "**/__pycache__", "**/*.py[cod]"):
+                    self.assertIn(excluded, rules)
+                self.assertTrue(generated.read_bytes().startswith(original))
+                os.utime(generated, (1_700_000_000, 1_700_000_000))
+                module.prepare_upstream_build_context()
+                self.assertEqual(generated.stat().st_mtime, 1_700_000_000)
+            self.assertEqual(upstream.read_bytes(), original)
+
     def test_patch_env_preserves_secrets_and_sets_local_urls(self) -> None:
         module = load_module()
         source = "\n".join(
@@ -89,21 +109,19 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unresolved placeholders"):
             module.assert_resolved_env("POSTGRES_PASSWORD={pgpwd}\n")
 
-    def test_compose_command_uses_upstream_project_directory(self) -> None:
+    def test_compose_command_uses_root_entry_point_and_private_environment(self) -> None:
         module = load_module()
 
         command = module.compose_command("config", "--quiet")
 
         self.assertEqual(command[:2], ["docker", "compose"])
         self.assertIn("--project-directory", command)
-        self.assertIn(str(ROOT / "geonode"), command)
+        self.assertIn(str(ROOT), command)
         self.assertIn(str(ROOT / "geonode" / ".env"), command)
         self.assertEqual(
             [command[index + 1] for index, value in enumerate(command) if value == "-f"],
             [
-                str(ROOT / "geonode" / "docker-compose.yml"),
-                str(ROOT / "config" / "geonode" / "docker-compose.apple-silicon.yml"),
-                str(ROOT / "config" / "geonode" / "docker-compose.nrw-project.yml"),
+                str(ROOT / "docker-compose.yaml"),
             ],
         )
         self.assertEqual(command[-2:], ["config", "--quiet"])
@@ -372,6 +390,7 @@ class GeoNodeEnvironmentTest(unittest.TestCase):
             geonode_dir = Path(temporary_directory) / "geonode"
             geonode_dir.mkdir()
             (geonode_dir / "create-envfile.py").touch()
+            (geonode_dir / ".dockerignore").touch()
             compose_path = geonode_dir / "docker-compose.yml"
             compose_path.touch()
             env_path = geonode_dir / ".env"

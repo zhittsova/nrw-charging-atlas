@@ -15,6 +15,7 @@ from urllib.request import urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ROOT_COMPOSE_PATH = ROOT / "docker-compose.yaml"
 GEONODE_DIR = ROOT / "geonode"
 ENV_PATH = GEONODE_DIR / ".env"
 COMPOSE_PATH = GEONODE_DIR / "docker-compose.yml"
@@ -247,15 +248,11 @@ def compose_command(*args: str) -> list[str]:
         "docker",
         "compose",
         "--project-directory",
-        str(GEONODE_DIR),
+        str(ROOT),
         "--env-file",
         str(ENV_PATH),
         "-f",
-        str(COMPOSE_PATH),
-        "-f",
-        str(APPLE_SILICON_COMPOSE_PATH),
-        "-f",
-        str(PROJECT_COMPOSE_PATH),
+        str(ROOT_COMPOSE_PATH),
         *args,
     ]
 
@@ -403,6 +400,19 @@ def wait_until_healthy() -> None:
     wait_for_core_services()
 
 
+def prepare_upstream_build_context() -> None:
+    """Keep local state out of the image without changing pinned upstream files."""
+    upstream = (GEONODE_DIR / ".dockerignore").read_text(encoding="utf-8")
+    exclusions = (
+        "\n# Local state is supplied at runtime, outside the image build.\n"
+        ".git\n.env\n.env.*\n.venv\n**/__pycache__\n**/*.py[cod]\n"
+    )
+    content = upstream.rstrip() + "\n" + exclusions
+    destination = GEONODE_DIR / "Dockerfile.dockerignore"
+    if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+        destination.write_text(content, encoding="utf-8")
+
+
 def initialize_environment() -> None:
     validate_upstream_checkout()
     if (
@@ -440,6 +450,7 @@ def initialize_environment() -> None:
     assert_resolved_env(text)
     ENV_PATH.write_text(text, encoding="utf-8")
     os.chmod(ENV_PATH, 0o600)
+    prepare_upstream_build_context()
     subprocess.run(compose_command("config", "--quiet"), check=True)
 
 
