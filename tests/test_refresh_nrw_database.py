@@ -29,7 +29,8 @@ class RefreshCoordinatorTest(unittest.TestCase):
 
     def test_seed_and_image_do_not_depend_on_frontend_snapshots(self) -> None:
         stack = (ROOT / "scripts" / "project_stack.py").read_text(encoding="utf-8")
-        image = (ROOT / "docker" / "etl.Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        image = dockerfile.split(" AS etl\n", 1)[1].split("\nFROM ", 1)[0]
 
         self.assertIn("scripts/refresh_nrw_database.py", stack)
         self.assertNotIn("scripts/load_nrw_postgis.py", stack)

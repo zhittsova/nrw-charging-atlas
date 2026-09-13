@@ -89,6 +89,12 @@ def start() -> None:
     geonode_stack.start_stack()
 
 
+def initialize() -> None:
+    """Prepare the pinned checkout and private environment for Docker Compose."""
+    geonode_stack.provision_upstream_checkout()
+    geonode_stack.initialize_environment()
+
+
 def bootstrap(*, download: bool = True) -> None:
     """Build the local platform, seed its data mart, and publish its layers."""
     start()
@@ -109,6 +115,7 @@ def print_endpoints() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the complete local NRW GeoNode project")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("init", help="prepare the pinned GeoNode checkout and private Compose configuration")
     bootstrap_parser = commands.add_parser(
         "bootstrap",
         help="start containers, download data, rebuild PostGIS, and publish layers",
@@ -133,7 +140,10 @@ def main() -> None:
     commands.add_parser("status", help="show container health")
     args = parser.parse_args()
 
-    if args.command == "bootstrap":
+    if args.command == "init":
+        initialize()
+        print("Docker Compose is ready. Run bootstrap to start, seed, and publish the project.")
+    elif args.command == "bootstrap":
         bootstrap(download=not args.skip_download)
         print_endpoints()
     elif args.command == "start":

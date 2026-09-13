@@ -46,8 +46,9 @@ services:
 
   frontend:
     build:
-      context: ../frontend
+      context: ../
       dockerfile: Dockerfile
+      target: frontend
     ports:
       - "127.0.0.1:8081:80"
     restart: unless-stopped
@@ -62,7 +63,8 @@ services:
       - tools
     build:
       context: ../
-      dockerfile: docker/etl.Dockerfile
+      dockerfile: Dockerfile
+      target: etl
     environment:
       POSTGRES_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/postgres
       NRW_DATABASE_NAME: ${NRW_DATABASE_NAME:-nrw_gis}
