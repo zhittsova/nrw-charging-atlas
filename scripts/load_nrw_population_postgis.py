@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlencode
@@ -12,6 +13,42 @@ from load_nrw_postgis import _copy_block, read_admin_regions, run_psql
 
 
 API = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/demo_r_pjanaggr3"
+
+
+def read_population_snapshot(path: Path, *, expected_codes: set[str]) -> list[dict]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    records = document.get("records")
+    if not isinstance(records, list) or not records:
+        raise ValueError("Population snapshot must contain a non-empty records array")
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for record in records:
+        code = str(record.get("nuts_code") or "")
+        population = record.get("population")
+        reference_year = record.get("reference_year")
+        if code in seen:
+            raise ValueError(f"Population snapshot contains duplicate NUTS code: {code}")
+        if code not in expected_codes:
+            raise ValueError(f"Population snapshot contains unexpected NUTS code: {code}")
+        if not isinstance(population, int) or population <= 0:
+            raise ValueError(f"Population must be a positive integer for {code}")
+        if not isinstance(reference_year, int) or reference_year <= 0:
+            raise ValueError(f"Population reference year is invalid for {code}")
+        seen.add(code)
+        rows.append(
+            {
+                "district_code": record.get("district_code") or code,
+                "nuts_code": code,
+                "ags": record.get("ags"),
+                "population": population,
+                "reference_year": reference_year,
+                "source": record.get("source") or "Eurostat demo_r_pjanaggr3",
+            }
+        )
+    missing = sorted(expected_codes - seen)
+    if missing:
+        raise ValueError(f"Population snapshot is missing NUTS codes: {', '.join(missing)}")
+    return rows
 
 
 def fetch_population(nuts_code: str) -> dict:
@@ -41,18 +78,25 @@ def fetch_population(nuts_code: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
+    parser.add_argument("--snapshot", type=Path, help="Use a checked population snapshot without API calls")
     args = parser.parse_args()
+    if not args.database_url:
+        raise ValueError("DATABASE_URL or --database-url is required")
     regions = read_admin_regions(ROOT / "frontend/data/nrw_regions_sample.geojson")
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        rows = list(executor.map(fetch_population, [str(region["nuts_code"]) for region in regions]))
-    snapshot = {
-        "dataset": "demo_r_pjanaggr3",
-        "source_url": API,
-        "records": rows,
-    }
-    target = ROOT / "data/raw/eurostat_population_nrw.json"
-    target.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    expected_codes = {str(region["nuts_code"]) for region in regions}
+    if args.snapshot:
+        rows = read_population_snapshot(args.snapshot, expected_codes=expected_codes)
+    else:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            rows = list(executor.map(fetch_population, sorted(expected_codes)))
+        snapshot = {
+            "dataset": "demo_r_pjanaggr3",
+            "source_url": API,
+            "records": rows,
+        }
+        target = ROOT / "data/raw/eurostat_population_nrw.json"
+        target.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     columns = ("district_code", "nuts_code", "ags", "population", "reference_year", "source")
     sql = f"""BEGIN;
 CREATE TEMP TABLE import_population (

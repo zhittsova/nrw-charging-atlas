@@ -2,7 +2,13 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   server: {
-    port: 5173
+    port: 5173,
+    proxy: {
+      "/geoserver": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      }
+    }
   },
   build: {
     outDir: "dist"

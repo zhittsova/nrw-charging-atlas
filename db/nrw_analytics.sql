@@ -26,6 +26,12 @@ DROP MATERIALIZED VIEW IF EXISTS analytics.nrw_transport_metrics CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS analytics.nrw_grid_proxy_metrics CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS analytics.nrw_renewable_metrics CASCADE;
 DROP VIEW IF EXISTS publish.nrw_district_priority;
+DROP VIEW IF EXISTS publish.nrw_ev_scenario_metrics;
+DROP VIEW IF EXISTS publish.nrw_ev_baseline_metrics;
+DROP VIEW IF EXISTS analytics.nrw_ev_scenario_metrics;
+DROP VIEW IF EXISTS analytics.nrw_ev_baseline_metrics;
+DROP VIEW IF EXISTS analytics.nrw_ev_baseline_bounds;
+DROP VIEW IF EXISTS analytics.nrw_ev_baseline_raw;
 
 CREATE MATERIALIZED VIEW analytics.nrw_transport_metrics AS
 WITH road_parts AS (
@@ -456,10 +462,328 @@ CREATE UNIQUE INDEX nrw_infrastructure_opportunity_nuts_uq
 CREATE INDEX nrw_infrastructure_opportunity_geom_gix
     ON analytics.nrw_infrastructure_opportunity USING gist (geom);
 
+CREATE OR REPLACE VIEW analytics.nrw_ev_baseline_raw AS
+SELECT
+    m.nuts_code,
+    m.ags,
+    m.district_name,
+    m.area_km2,
+    m.population,
+    m.chargers_total,
+    m.charging_points_total,
+    m.fast_chargers_total,
+    m.normal_chargers_total,
+    m.chargers_total / NULLIF(m.area_km2, 0) AS chargers_per_km2,
+    m.charging_points_total * 100000.0 / NULLIF(m.population, 0)
+        AS charging_points_per_100k_population,
+    m.distance_to_nearest_charger_m,
+    m.geom
+FROM analytics.nrw_district_metrics m;
+
+CREATE OR REPLACE VIEW analytics.nrw_ev_baseline_bounds AS
+SELECT
+    percentile_cont(0.05) WITHIN GROUP (ORDER BY chargers_per_km2)
+        AS charger_density_low,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY chargers_per_km2)
+        AS charger_density_high,
+    percentile_cont(0.05) WITHIN GROUP (ORDER BY distance_to_nearest_charger_m)
+        AS charger_distance_low,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY distance_to_nearest_charger_m)
+        AS charger_distance_high,
+    percentile_cont(0.05) WITHIN GROUP (ORDER BY charging_points_per_100k_population)
+        AS population_coverage_low,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY charging_points_per_100k_population)
+        AS population_coverage_high
+FROM analytics.nrw_ev_baseline_raw;
+
+CREATE OR REPLACE VIEW analytics.nrw_ev_baseline_metrics AS
+WITH components AS (
+    SELECT
+        r.*,
+        ROUND(analytics.normalize_5_95(
+            r.chargers_per_km2,
+            b.charger_density_low,
+            b.charger_density_high
+        ), 1) AS charger_density_score,
+        ROUND(analytics.normalize_5_95(
+            r.distance_to_nearest_charger_m,
+            b.charger_distance_low,
+            b.charger_distance_high,
+            true
+        ), 1) AS charger_accessibility_score,
+        ROUND(analytics.normalize_5_95(
+            r.charging_points_per_100k_population,
+            b.population_coverage_low,
+            b.population_coverage_high
+        ), 1) AS population_adjusted_coverage_score
+    FROM analytics.nrw_ev_baseline_raw r
+    CROSS JOIN analytics.nrw_ev_baseline_bounds b
+),
+readiness AS (
+    SELECT
+        c.*,
+        CASE
+            WHEN c.charger_density_score IS NULL
+              OR c.charger_accessibility_score IS NULL
+              OR c.population_adjusted_coverage_score IS NULL
+            THEN NULL
+            ELSE ROUND(
+                0.40 * c.charger_density_score
+                + 0.30 * c.charger_accessibility_score
+                + 0.30 * c.population_adjusted_coverage_score,
+                1
+            )
+        END AS ev_readiness_score
+    FROM components c
+),
+scored AS (
+    SELECT
+        r.*,
+        CASE
+            WHEN r.ev_readiness_score IS NULL THEN NULL
+            ELSE ROUND(100.0 - r.ev_readiness_score, 1)
+        END AS charger_deficit_score,
+        i.infrastructure_opportunity_score,
+        CASE
+            WHEN r.ev_readiness_score IS NULL
+              OR i.infrastructure_opportunity_score IS NULL
+            THEN NULL
+            ELSE ROUND(
+                0.60 * (100.0 - r.ev_readiness_score)
+                + 0.40 * i.infrastructure_opportunity_score,
+                1
+            )
+        END AS investment_priority_score,
+        CASE
+            WHEN r.ev_readiness_score IS NULL THEN 'missing_ev_input'
+            WHEN i.infrastructure_opportunity_score IS NULL THEN 'missing_infrastructure_input'
+            ELSE 'complete_proxy_inputs'
+        END AS data_quality_flag
+    FROM readiness r
+    LEFT JOIN analytics.nrw_infrastructure_opportunity i USING (nuts_code)
+)
+SELECT
+    s.*,
+    RANK() OVER (ORDER BY s.investment_priority_score DESC NULLS LAST) AS priority_rank
+FROM scored s;
+
+CREATE OR REPLACE VIEW analytics.nrw_ev_scenario_metrics AS
+WITH effective_chargers AS (
+    SELECT
+        c.charging_points,
+        c.power_kw,
+        c.geom
+    FROM raw.chargers c
+    UNION ALL
+    SELECT
+        p.charging_points,
+        p.power_kw,
+        p.geom
+    FROM scenario.proposed_chargers p
+),
+scenario_raw AS (
+    SELECT
+        d.nuts_code,
+        d.ags,
+        d.district_name,
+        m.area_km2,
+        m.population,
+        COUNT(c.geom) AS chargers_total,
+        COALESCE(
+            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.geom IS NOT NULL),
+            0
+        ) AS charging_points_total,
+        COUNT(c.geom) FILTER (WHERE COALESCE(c.power_kw, 0) >= 50)
+            AS fast_chargers_total,
+        COUNT(c.geom) FILTER (WHERE COALESCE(c.power_kw, 0) < 50)
+            AS normal_chargers_total,
+        COUNT(c.geom) / NULLIF(m.area_km2, 0) AS chargers_per_km2,
+        COALESCE(
+            SUM(COALESCE(c.charging_points, 1)) FILTER (WHERE c.geom IS NOT NULL),
+            0
+        ) * 100000.0 / NULLIF(m.population, 0)
+            AS charging_points_per_100k_population,
+        nearest.distance_to_nearest_charger_m,
+        d.geom
+    FROM staging.nrw_districts d
+    JOIN analytics.nrw_district_metrics m USING (nuts_code)
+    LEFT JOIN effective_chargers c ON ST_Intersects(c.geom, d.geom)
+    LEFT JOIN LATERAL (
+        SELECT ST_Distance(
+            ST_Centroid(ST_Transform(d.geom, 25832)),
+            ST_Transform(cn.geom, 25832)
+        ) AS distance_to_nearest_charger_m
+        FROM effective_chargers cn
+        ORDER BY ST_Centroid(d.geom) <-> cn.geom
+        LIMIT 1
+    ) nearest ON true
+    GROUP BY
+        d.nuts_code,
+        d.ags,
+        d.district_name,
+        m.area_km2,
+        m.population,
+        nearest.distance_to_nearest_charger_m,
+        d.geom
+),
+components AS (
+    SELECT
+        r.*,
+        ROUND(analytics.normalize_5_95(
+            r.chargers_per_km2,
+            b.charger_density_low,
+            b.charger_density_high
+        ), 1) AS charger_density_score,
+        ROUND(analytics.normalize_5_95(
+            r.distance_to_nearest_charger_m,
+            b.charger_distance_low,
+            b.charger_distance_high,
+            true
+        ), 1) AS charger_accessibility_score,
+        ROUND(analytics.normalize_5_95(
+            r.charging_points_per_100k_population,
+            b.population_coverage_low,
+            b.population_coverage_high
+        ), 1) AS population_adjusted_coverage_score
+    FROM scenario_raw r
+    CROSS JOIN analytics.nrw_ev_baseline_bounds b
+),
+readiness AS (
+    SELECT
+        c.*,
+        CASE
+            WHEN c.charger_density_score IS NULL
+              OR c.charger_accessibility_score IS NULL
+              OR c.population_adjusted_coverage_score IS NULL
+            THEN NULL
+            ELSE ROUND(
+                0.40 * c.charger_density_score
+                + 0.30 * c.charger_accessibility_score
+                + 0.30 * c.population_adjusted_coverage_score,
+                1
+            )
+        END AS ev_readiness_score
+    FROM components c
+),
+scored AS (
+    SELECT
+        r.*,
+        CASE
+            WHEN r.ev_readiness_score IS NULL THEN NULL
+            ELSE ROUND(100.0 - r.ev_readiness_score, 1)
+        END AS charger_deficit_score,
+        i.infrastructure_opportunity_score,
+        CASE
+            WHEN r.ev_readiness_score IS NULL
+              OR i.infrastructure_opportunity_score IS NULL
+            THEN NULL
+            ELSE ROUND(
+                0.60 * (100.0 - r.ev_readiness_score)
+                + 0.40 * i.infrastructure_opportunity_score,
+                1
+            )
+        END AS investment_priority_score,
+        CASE
+            WHEN r.ev_readiness_score IS NULL THEN 'missing_ev_input'
+            WHEN i.infrastructure_opportunity_score IS NULL THEN 'missing_infrastructure_input'
+            ELSE 'complete_proxy_inputs'
+        END AS data_quality_flag
+    FROM readiness r
+    LEFT JOIN analytics.nrw_infrastructure_opportunity i USING (nuts_code)
+),
+ranked AS (
+    SELECT
+        s.*,
+        RANK() OVER (ORDER BY s.investment_priority_score DESC NULLS LAST)
+            AS priority_rank
+    FROM scored s
+)
+SELECT
+    s.nuts_code,
+    s.ags,
+    s.district_name,
+    s.area_km2,
+    s.population,
+    b.chargers_total AS baseline_chargers_total,
+    s.chargers_total AS scenario_chargers_total,
+    s.chargers_total - b.chargers_total AS chargers_total_delta,
+    b.charging_points_total AS baseline_charging_points_total,
+    s.charging_points_total AS scenario_charging_points_total,
+    s.charging_points_total - b.charging_points_total AS charging_points_total_delta,
+    b.fast_chargers_total AS baseline_fast_chargers_total,
+    s.fast_chargers_total AS scenario_fast_chargers_total,
+    s.fast_chargers_total - b.fast_chargers_total AS fast_chargers_total_delta,
+    b.normal_chargers_total AS baseline_normal_chargers_total,
+    s.normal_chargers_total AS scenario_normal_chargers_total,
+    s.normal_chargers_total - b.normal_chargers_total AS normal_chargers_total_delta,
+    b.chargers_per_km2 AS baseline_chargers_per_km2,
+    s.chargers_per_km2 AS scenario_chargers_per_km2,
+    s.chargers_per_km2 - b.chargers_per_km2 AS chargers_per_km2_delta,
+    b.charging_points_per_100k_population
+        AS baseline_charging_points_per_100k_population,
+    s.charging_points_per_100k_population
+        AS scenario_charging_points_per_100k_population,
+    s.charging_points_per_100k_population
+        - b.charging_points_per_100k_population
+        AS charging_points_per_100k_population_delta,
+    b.distance_to_nearest_charger_m AS baseline_distance_to_nearest_charger_m,
+    s.distance_to_nearest_charger_m AS scenario_distance_to_nearest_charger_m,
+    s.distance_to_nearest_charger_m - b.distance_to_nearest_charger_m
+        AS distance_to_nearest_charger_m_delta,
+    b.charger_density_score AS baseline_charger_density_score,
+    s.charger_density_score AS scenario_charger_density_score,
+    s.charger_density_score - b.charger_density_score AS charger_density_score_delta,
+    b.charger_accessibility_score AS baseline_charger_accessibility_score,
+    s.charger_accessibility_score AS scenario_charger_accessibility_score,
+    s.charger_accessibility_score - b.charger_accessibility_score
+        AS charger_accessibility_score_delta,
+    b.population_adjusted_coverage_score
+        AS baseline_population_adjusted_coverage_score,
+    s.population_adjusted_coverage_score
+        AS scenario_population_adjusted_coverage_score,
+    s.population_adjusted_coverage_score - b.population_adjusted_coverage_score
+        AS population_adjusted_coverage_score_delta,
+    b.ev_readiness_score AS baseline_ev_readiness_score,
+    s.ev_readiness_score AS scenario_ev_readiness_score,
+    s.ev_readiness_score - b.ev_readiness_score AS ev_readiness_score_delta,
+    b.charger_deficit_score AS baseline_charger_deficit_score,
+    s.charger_deficit_score AS scenario_charger_deficit_score,
+    s.charger_deficit_score - b.charger_deficit_score AS charger_deficit_score_delta,
+    s.infrastructure_opportunity_score,
+    b.investment_priority_score AS baseline_investment_priority_score,
+    s.investment_priority_score AS scenario_investment_priority_score,
+    s.investment_priority_score - b.investment_priority_score
+        AS investment_priority_score_delta,
+    b.priority_rank AS baseline_priority_rank,
+    s.priority_rank AS scenario_priority_rank,
+    s.data_quality_flag,
+    s.geom
+FROM ranked s
+JOIN analytics.nrw_ev_baseline_metrics b USING (nuts_code);
+
 CREATE OR REPLACE VIEW publish.nrw_transport_load AS
 SELECT d.*, a.geom
 FROM analytics.nrw_transport_metrics d
 JOIN staging.nrw_districts a USING (nuts_code);
+
+CREATE OR REPLACE VIEW publish.nrw_autobahns AS
+SELECT source_id, highway, ref, name, geom
+FROM raw.osm_roads
+WHERE highway = 'motorway';
+
+CREATE OR REPLACE VIEW publish.nrw_regional_roads AS
+SELECT
+    osm_id AS source_id,
+    road_class,
+    road_number,
+    name,
+    traffic_total,
+    traffic_light,
+    traffic_heavy,
+    source,
+    geom
+FROM raw.roads
+WHERE road_class IN ('B', 'L');
 
 CREATE OR REPLACE VIEW publish.nrw_grid_proxy AS
 SELECT d.*, a.geom
@@ -509,5 +833,11 @@ FROM analytics.nrw_local_energy_balance;
 CREATE OR REPLACE VIEW publish.nrw_infrastructure_opportunity AS
 SELECT * FROM analytics.nrw_infrastructure_opportunity;
 
+CREATE OR REPLACE VIEW publish.nrw_ev_baseline_metrics AS
+SELECT * FROM analytics.nrw_ev_baseline_metrics;
+
+CREATE OR REPLACE VIEW publish.nrw_ev_scenario_metrics AS
+SELECT * FROM analytics.nrw_ev_scenario_metrics;
+
 CREATE OR REPLACE VIEW publish.nrw_district_priority AS
-SELECT * FROM analytics.nrw_infrastructure_opportunity;
+SELECT * FROM analytics.nrw_ev_baseline_metrics;

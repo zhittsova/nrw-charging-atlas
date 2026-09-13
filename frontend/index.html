@@ -9,38 +9,20 @@
     <script>
       window.__energyAppConfig = {
         geonodeBaseUrl: "http://localhost:8000",
-        geoserverBaseUrl: "http://localhost:8080",
+        geoserverBaseUrl: "",
         geonodeStationsLayer: "geonode:nrw_ev_charging_stations",
-        geonodeRegionsLayer: "geonode:nrw_nuts3_districts"
+        geonodeRegionsLayer: "geonode:nrw_nuts3_districts",
+        scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
+        proposedChargersLayer: "nrw:proposed_chargers",
+        autobahnsLayer: "nrw:nrw_autobahns",
+        regionalRoadsLayer: "nrw:nrw_regional_roads",
+        scenarioFeaturePrefix: "nrw",
+        scenarioNamespaceUri: "https://nrw.local/scenario"
       };
     </script>
   </head>
   <body>
     <div class="app-shell">
-      <nav class="nav-rail" aria-label="Primary navigation">
-        <div class="rail-logo" aria-hidden="true">
-          <span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span>
-          <span></span>
-        </div>
-        <button class="rail-button active" type="button" aria-label="Map view">
-          <span class="rail-icon">MAP</span>
-        </button>
-        <button class="rail-button" type="button" aria-label="Layers">
-          <span class="rail-icon">LYR</span>
-        </button>
-        <button class="rail-button" type="button" aria-label="Analytics">
-          <span class="rail-icon">KPI</span>
-        </button>
-        <button class="rail-button" type="button" aria-label="Data catalog">
-          <span class="rail-icon">CAT</span>
-        </button>
-        <div class="rail-spacer"></div>
-        <button class="rail-button" type="button" aria-label="Settings">
-          <span class="rail-icon">CFG</span>
-        </button>
-      </nav>
-
       <main class="app-main">
         <header class="app-header">
           <div>
@@ -60,29 +42,20 @@
               <span>Total NRW stations</span>
               <strong id="kpi-total-stations">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,27 18,25 33,25 45,19 59,20 73,12 88,14 104,9 118,5"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-blue">
             <div class="kpi-icon">D</div>
             <div>
-              <span>Avg supply score</span>
+              <span>Avg EV readiness</span>
               <strong id="kpi-average-density">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,26 16,25 30,21 43,24 57,19 71,20 85,12 99,14 118,7"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-purple">
             <div class="kpi-icon">RDY</div>
             <div>
-              <span>Best supplied</span>
+              <span>Best EV readiness</span>
               <strong id="kpi-best-region">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,28 20,27 34,22 48,16 62,20 76,25 90,12 104,9 118,16"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-amber">
             <div class="kpi-icon">GAP</div>
@@ -90,9 +63,6 @@
               <span>Most underserved</span>
               <strong id="kpi-underserved-region">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,22 17,23 31,18 45,20 59,11 74,14 89,8 104,12 118,7"></polyline>
-            </svg>
           </article>
           <article class="kpi-card kpi-teal">
             <div class="kpi-icon">PRI</div>
@@ -100,74 +70,48 @@
               <span>Highest priority</span>
               <strong id="kpi-priority-region">-</strong>
             </div>
-            <svg class="sparkline" viewBox="0 0 120 34" aria-hidden="true">
-              <polyline points="2,29 16,25 29,26 42,18 56,16 70,8 84,13 98,24 118,14"></polyline>
-            </svg>
-          </article>
-          <article class="kpi-card kpi-ring">
-            <div class="ring-meter" aria-hidden="true">
-              <span>68%</span>
-            </div>
-            <div>
-              <span>Data readiness</span>
-              <strong>POC</strong>
-            </div>
           </article>
         </section>
 
         <section class="command-grid">
           <aside class="left-stack" aria-label="Datasets, filters, and metadata">
-            <section class="panel mode-panel">
-              <div class="tool-tabs" aria-label="Layer shortcuts">
-                <button class="tool-tab active" type="button">Grid</button>
-                <button class="tool-tab" type="button">EV</button>
-                <button class="tool-tab" type="button">Road</button>
-                <button class="tool-tab" type="button">Demand</button>
-              </div>
-
-              <h2>Datasets</h2>
-              <div id="dataset-list" class="dataset-list"></div>
-              <div id="metadata-content" class="metadata-mini"></div>
-            </section>
-
             <section class="panel control-panel">
               <h2>Scoring Controls</h2>
-              <label class="field-label" for="score-mode">Choropleth score</label>
+              <label class="field-label" for="score-mode">Choropleth indicator</label>
               <select id="score-mode" class="select-input">
                 <option value="investmentPriorityScore">Investment Priority</option>
-                <option value="chargingSupplyScore">Charging Supply</option>
+                <option value="evReadinessScore">EV Readiness</option>
                 <option value="chargerDeficitScore">Charger Deficit</option>
-                <option value="dataQualityScore">Data Quality</option>
+                <option value="infrastructureOpportunityScore">Infrastructure Opportunity</option>
               </select>
-              <div class="slider-list" aria-hidden="true">
-                <div class="slider-row"><span>Charger supply</span><i style="--value: 68%"></i></div>
-                <div class="slider-row"><span>Deficit</span><i style="--value: 72%"></i></div>
-                <div class="slider-row"><span>Grid pending</span><i style="--value: 35%"></i></div>
-                <div class="slider-row"><span>Demand pending</span><i style="--value: 35%"></i></div>
+              <div class="scenario-controls">
+                <span class="field-label">Comparison view</span>
+                <div class="scenario-mode-switch" role="group" aria-label="Scenario comparison view">
+                  <button type="button" class="active" data-scenario-mode="baseline">Baseline</button>
+                  <button type="button" data-scenario-mode="scenario">Scenario</button>
+                  <button type="button" data-scenario-mode="change">Change</button>
+                </div>
+                <div class="scenario-layer-toggles">
+                  <label><input id="official-layer-toggle" type="checkbox" checked> Official stations</label>
+                  <label><input id="scenario-layer-toggle" type="checkbox" checked> Proposed stations</label>
+                </div>
+                <div class="scenario-actions">
+                  <button id="scenario-add-button" class="primary-action" type="button">Add proposed station</button>
+                  <button id="scenario-reset-button" class="secondary-action" type="button">Reset</button>
+                </div>
+                <p id="scenario-status" class="scenario-status" aria-live="polite">Scenario data is loading…</p>
               </div>
             </section>
 
-            <section class="panel donut-panel" aria-label="Portfolio mix">
-              <div class="donut"></div>
-              <div class="legend-list">
-                <span><i class="legend-green"></i>EV supply</span>
-                <span><i class="legend-blue"></i>NUTS-3</span>
-                <span><i class="legend-purple"></i>Demand todo</span>
-                <span><i class="legend-amber"></i>Grid todo</span>
-              </div>
-            </section>
           </aside>
 
           <section class="map-shell">
             <div class="map-toolbar" aria-label="Map tools">
-              <button type="button">PTR</button>
-              <button type="button">SEL</button>
-              <button type="button">LYR</button>
-              <button type="button">FLT</button>
+              <button id="map-add-station" type="button" title="Add a proposed charging station">Add station</button>
             </div>
             <div id="map" aria-label="Leaflet map of NRW energy infrastructure intelligence"></div>
             <div class="map-note">
-              NRW case study: 53 real NUTS-3 districts and BNetzA charger records. Demand, roads, grid and renewables are pending enrichment layers.
+              NRW case study: 53 NUTS-3 districts, official BNetzA chargers and editable local planning scenarios recalculated in PostGIS.
             </div>
           </section>
 
@@ -179,9 +123,9 @@
               </div>
               <div class="ranking-tabs" role="tablist" aria-label="Ranking type">
                 <button class="ranking-tab active" type="button" data-ranking="investmentPriorityScore">Priority</button>
-                <button class="ranking-tab" type="button" data-ranking="chargingSupplyScore">Supply</button>
+                <button class="ranking-tab" type="button" data-ranking="evReadinessScore">Readiness</button>
                 <button class="ranking-tab" type="button" data-ranking="chargerDeficitScore">Gap</button>
-                <button class="ranking-tab" type="button" data-ranking="dataQualityScore">Quality</button>
+                <button class="ranking-tab" type="button" data-ranking="infrastructureOpportunityScore">Infra</button>
               </div>
               <ol id="ranking-list" class="ranking-list"></ol>
             </section>
@@ -194,49 +138,101 @@
               <div id="region-detail" class="region-detail"></div>
             </section>
 
-            <section class="panel trend-panel" aria-label="Scenario trend">
+            <section class="panel scenario-list-panel" aria-label="Proposed charging stations">
               <div class="panel-heading">
-                <h2>Scenario Trend</h2>
-                <span>screening view</span>
+                <h2>Proposed Stations</h2>
+                <span id="scenario-station-count">0 stations</span>
               </div>
-              <svg class="trend-chart" viewBox="0 0 360 190" aria-hidden="true">
-                <path class="area area-one" d="M0,162 L40,150 L80,130 L120,145 L160,124 L200,142 L240,110 L280,128 L320,102 L360,118 L360,190 L0,190 Z"></path>
-                <path class="area area-two" d="M0,176 L40,162 L80,154 L120,168 L160,150 L200,164 L240,140 L280,151 L320,136 L360,146 L360,190 L0,190 Z"></path>
-                <polyline class="line line-green" points="0,74 40,67 80,52 120,62 160,70 200,55 240,66 280,71 320,58 360,45"></polyline>
-                <polyline class="line line-blue" points="0,98 40,90 80,82 120,96 160,88 200,94 240,80 280,93 320,86 360,76"></polyline>
-                <polyline class="line line-amber" points="0,122 40,118 80,104 120,123 160,110 200,119 240,101 280,116 320,111 360,96"></polyline>
-              </svg>
+              <div id="scenario-station-list" class="scenario-station-list"></div>
             </section>
           </aside>
         </section>
 
-        <section class="bottom-strip" aria-label="Insight layers">
-          <article class="mini-card hex-card">
-            <span>NRW Charger Density</span>
-            <i></i>
+        <section class="information-grid" aria-label="Methodology and data sources">
+          <article class="panel methodology-panel">
+            <div class="panel-heading">
+              <h2>How the indicators are calculated</h2>
+              <span>0–100 screening scores</span>
+            </div>
+            <p class="method-intro">Input values are normalized against fixed baseline 5th and 95th percentile bounds, then combined using the weights below. Scenario stations change district values without moving the baseline comparison scale.</p>
+            <div class="methodology-list">
+              <section>
+                <h3>EV Readiness</h3>
+                <p><strong>40% Charger Density</strong> + <strong>30% Charger Accessibility</strong> + <strong>30% Population-adjusted Coverage</strong>.</p>
+                <small>Based on official/proposed station locations, distance from the district centroid, district area and Eurostat population.</small>
+              </section>
+              <section>
+                <h3>Charger Deficit</h3>
+                <p><strong>Charger Deficit = 100 − EV Readiness</strong>.</p>
+                <small>A higher value identifies a larger relative charging-infrastructure gap.</small>
+              </section>
+              <section>
+                <h3>Infrastructure Opportunity</h3>
+                <p><strong>40% Transport Load</strong> + <strong>35% Grid Readiness Proxy</strong> + <strong>25% Renewable Context</strong>.</p>
+                <small>Based on Straßen.NRW traffic, mapped OSM power infrastructure and Energieatlas NRW renewable assets.</small>
+              </section>
+              <section>
+                <h3>Investment Priority</h3>
+                <p><strong>60% Charger Deficit</strong> + <strong>40% Infrastructure Opportunity</strong>.</p>
+                <small>Ranks areas where the charging gap and supporting infrastructure context jointly justify closer planning review.</small>
+              </section>
+              <section>
+                <h3>Grid Absorption Risk Proxy</h3>
+                <p><strong>45% Local Energy Balance</strong> + <strong>30% Renewable Growth</strong> + <strong>25% inverse Grid Readiness Proxy</strong>.</p>
+                <small>This is a screening proxy, not measured DSO hosting capacity. Feeder loading, transformer headroom and connection queues are not available.</small>
+              </section>
+            </div>
           </article>
-          <article class="mini-card region-card">
-            <span>NUTS-3 Districts</span>
-            <i></i>
-          </article>
-          <article class="mini-card network-card">
-            <span>Grid Data Todo</span>
-            <i></i>
-          </article>
-          <article class="mini-card corridor-card">
-            <span>Road Corridors Todo</span>
-            <i></i>
-          </article>
-          <article class="mini-card demand-card">
-            <span>Demand Data Todo</span>
-            <i></i>
-          </article>
-          <article class="mini-card point-card">
-            <span>BNetzA Assets</span>
-            <i></i>
+
+          <article class="panel sources-panel">
+            <div class="panel-heading">
+              <h2>Data sources</h2>
+              <span>Public data, no API keys</span>
+            </div>
+            <ul class="source-list">
+              <li><strong>Bundesnetzagentur</strong><span>Official public charging stations, operators, power and charging points.</span></li>
+              <li><strong>Eurostat GISCO</strong><span>2024 NRW NUTS-3 district boundaries.</span></li>
+              <li><strong>Eurostat population</strong><span>District population denominator for coverage.</span></li>
+              <li><strong>Straßen.NRW</strong><span>Bundesstraße/Landesstraße traffic lines and daily traffic values.</span></li>
+              <li><strong>Open Power System Data</strong><span>Conventional power-plant context.</span></li>
+              <li><strong>Energieatlas NRW</strong><span>Renewable sites, generation, capacity and electricity consumption.</span></li>
+              <li><strong>OpenStreetMap / Geofabrik</strong><span>Autobahns and mapped grid lines, substations and transformers.</span></li>
+            </ul>
+            <p class="source-note">Download URLs, licences, timestamps and checksums are recorded in the source catalogs and <code>data/raw/provenance/</code>.</p>
           </article>
         </section>
       </main>
+    </div>
+
+    <div id="scenario-modal" class="scenario-modal" hidden>
+      <div class="scenario-dialog" role="dialog" aria-modal="true" aria-labelledby="scenario-dialog-title">
+        <div class="panel-heading">
+          <h2 id="scenario-dialog-title">Add proposed charging station</h2>
+          <button id="scenario-modal-close" class="dialog-close" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="dialog-location">Selected location: <strong id="scenario-location">—</strong></p>
+        <form id="scenario-form">
+          <label class="form-field">
+            <span>Name</span>
+            <input id="scenario-name" name="name" maxlength="120" required placeholder="e.g. Campus fast charging hub">
+          </label>
+          <div class="form-grid">
+            <label class="form-field">
+              <span>Charging points</span>
+              <input id="scenario-points" name="chargingPoints" type="number" min="1" max="100" step="1" value="4" required>
+            </label>
+            <label class="form-field">
+              <span>Power per station (kW)</span>
+              <input id="scenario-power" name="powerKw" type="number" min="1" max="1000" step="0.1" value="150" required>
+            </label>
+          </div>
+          <p id="scenario-form-error" class="form-error" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <button id="scenario-cancel" class="secondary-action" type="button">Cancel</button>
+            <button class="primary-action" type="submit">Add and recalculate</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

@@ -1,0 +1,37 @@
+services:
+  db:
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  frontend:
+    build:
+      context: ../
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+    depends_on:
+      geoserver:
+        condition: service_healthy
+
+  nrw-etl:
+    profiles:
+      - tools
+    build:
+      context: ../
+      dockerfile: docker/etl.Dockerfile
+    environment:
+      POSTGRES_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/postgres
+      NRW_DATABASE_NAME: ${NRW_DATABASE_NAME:-nrw_gis}
+      NRW_DATABASE_USER: ${NRW_DATABASE_USER}
+      NRW_DATABASE_PASSWORD: ${NRW_DATABASE_PASSWORD}
+      NRW_GEOSERVER_READ_USER: ${NRW_GEOSERVER_READ_USER}
+      NRW_GEOSERVER_READ_PASSWORD: ${NRW_GEOSERVER_READ_PASSWORD}
+      NRW_GEOSERVER_SCENARIO_USER: ${NRW_GEOSERVER_SCENARIO_USER}
+      NRW_GEOSERVER_SCENARIO_PASSWORD: ${NRW_GEOSERVER_SCENARIO_PASSWORD}
+      DATABASE_URL: postgresql://${NRW_DATABASE_USER}:${NRW_DATABASE_PASSWORD}@db:5432/${NRW_DATABASE_NAME:-nrw_gis}
+    volumes:
+      - ../data/raw:/app/data/raw
+    depends_on:
+      db:
+        condition: service_healthy
