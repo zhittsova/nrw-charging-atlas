@@ -166,11 +166,16 @@ class BufferedContextTests(DisposableSpatialFixture):
                 plan = json.loads(self.psql(
                     f"EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) SELECT * FROM staging.{view}"
                 ).stdout)[0]["Plan"]
-                buffer_nodes = [node for node in walk(plan)
-                                if "st_buffer(" in str(node.get("Output", "")).lower()
-                                and node["Node Type"] == "Aggregate"]
-                self.assertEqual(len(buffer_nodes), 1, plan)
-                self.assertEqual(buffer_nodes[0]["Actual Loops"], 1, plan)
+                bounds_plans = [node for node in walk(plan)
+                                if node.get("Subplan Name") == "CTE bounds"]
+                self.assertEqual(len(bounds_plans), 1, plan)
+                bounds = bounds_plans[0]
+                self.assertTrue(any(
+                    "st_buffer(" in str(node.get("Output", "")).lower()
+                    for node in walk(bounds)
+                ), plan)
+                self.assertEqual(bounds["Actual Loops"], 1, plan)
+                self.assertEqual(bounds["Actual Rows"], 1, plan)
 
 
 # Chargers, roads and substations are positioned by translating the district's
