@@ -492,10 +492,16 @@ END;
 $$;
 
 CREATE OR REPLACE VIEW staging.nrw_roads AS
+-- Materialize per query: otherwise PostgreSQL can evaluate this expensive
+-- geography buffer for every candidate feature in the spatial join.
+WITH bounds AS MATERIALIZED (
+    SELECT ST_Buffer(geom::geography, 10000)::geometry AS geom
+    FROM staging.nrw_boundary
+)
 SELECT r.*, staging.normalize_road_class(r.road_class) AS road_class_normalized
 FROM raw.roads r
-JOIN staging.nrw_boundary b
-  ON ST_Intersects(r.geom, ST_Buffer(b.geom::geography, 10000)::geometry)
+JOIN bounds b
+  ON ST_Intersects(r.geom, b.geom)
 WHERE staging.normalize_road_class(r.road_class)
       IN ('motorway', 'trunk', 'primary', 'secondary');
 
@@ -516,16 +522,24 @@ JOIN staging.nrw_districts d
 ORDER BY c.source_id, d.nuts_code;
 
 CREATE OR REPLACE VIEW staging.nrw_grid AS
+WITH bounds AS MATERIALIZED (
+    SELECT ST_Buffer(geom::geography, 10000)::geometry AS geom
+    FROM staging.nrw_boundary
+)
 SELECT g.*
 FROM raw.grid_infrastructure g
-JOIN staging.nrw_boundary b
-  ON ST_Intersects(g.geom, ST_Buffer(b.geom::geography, 10000)::geometry);
+JOIN bounds b
+  ON ST_Intersects(g.geom, b.geom);
 
 CREATE OR REPLACE VIEW staging.nrw_renewables AS
+WITH bounds AS MATERIALIZED (
+    SELECT ST_Buffer(geom::geography, 10000)::geometry AS geom
+    FROM staging.nrw_boundary
+)
 SELECT a.*
 FROM raw.renewable_assets a
-JOIN staging.nrw_boundary b
-  ON ST_Intersects(a.geom, ST_Buffer(b.geom::geography, 10000)::geometry);
+JOIN bounds b
+  ON ST_Intersects(a.geom, b.geom);
 
 DROP MATERIALIZED VIEW IF EXISTS analytics.nrw_district_metrics CASCADE;
 

@@ -131,6 +131,48 @@ class DisposableSpatialFixture(unittest.TestCase):
         return {row[0]: (float(row[1]), float(row[2])) for row in self.rows(sql)}
 
 
+class BufferedContextTests(DisposableSpatialFixture):
+    """The ten-kilometre context margin keeps its semantics without per-row buffers."""
+
+    load_analytics = False
+    fixture_sql = DISTRICTS_SQL + """
+    INSERT INTO raw.renewable_assets (source_id, geom) VALUES
+        ('inside', ST_SetSRID(ST_Point(7.2,51.2),4326)),
+        ('nearby', ST_SetSRID(ST_Point(6.95,51.2),4326)),
+        ('far', ST_SetSRID(ST_Point(6.5,51.2),4326));
+    INSERT INTO raw.grid_infrastructure (source_id, geom)
+        SELECT source_id, geom FROM raw.renewable_assets;
+    INSERT INTO raw.roads (osm_id, road_class, geom)
+        SELECT source_id, 'B', ST_MakeLine(geom, ST_Translate(geom,0,0.001))
+        FROM raw.renewable_assets;
+    """
+
+    def test_context_includes_nearby_features_but_excludes_distant_features(self):
+        for view, key in (("nrw_renewables", "source_id"), ("nrw_grid", "source_id"), ("nrw_roads", "osm_id")):
+            with self.subTest(view=view):
+                self.assertEqual(
+                    self.rows(f"SELECT {key} FROM staging.{view} ORDER BY {key}"),
+                    [["inside"], ["nearby"]],
+                )
+
+    def test_buffer_executes_once_per_query_for_all_context_layers(self):
+        def walk(plan):
+            yield plan
+            for child in plan.get("Plans", []):
+                yield from walk(child)
+
+        for view in ("nrw_renewables", "nrw_grid", "nrw_roads"):
+            with self.subTest(view=view):
+                plan = json.loads(self.psql(
+                    f"EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) SELECT * FROM staging.{view}"
+                ).stdout)[0]["Plan"]
+                buffer_nodes = [node for node in walk(plan)
+                                if "st_buffer(" in str(node.get("Output", "")).lower()
+                                and node["Node Type"] == "Aggregate"]
+                self.assertEqual(len(buffer_nodes), 1, plan)
+                self.assertEqual(buffer_nodes[0]["Actual Loops"], 1, plan)
+
+
 # Chargers, roads and substations are positioned by translating the district's
 # own projected centroid, so the counterexample holds for the centroid PostGIS
 # actually computes rather than for one assumed by the test.

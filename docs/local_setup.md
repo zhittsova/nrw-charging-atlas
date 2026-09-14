@@ -38,6 +38,17 @@ administrator credentials are in that file; inspect them locally when signing
 in to the catalogue. Keep the file private. Source downloads, runtime exports
 and Docker volumes are local state and do not belong in Git.
 
+The catalogue uses **NRW Charging Atlas** as its site name. Publication repairs
+Django's initial `example.com` site record from `SITEURL`; it preserves a custom
+name or domain you have already set. Set `NRW_SITE_NAME` before the first
+publication if you want a different name.
+
+Dataset thumbnails show each layer's geometry with its default GeoServer style.
+District metrics can share the same outline preview because they use the same
+boundaries; open their attributes or the dashboard to compare values. The
+proposed-stations layer starts empty until you add a station. `publish` refreshes
+the NRW thumbnails from WMS after synchronizing the catalogue.
+
 ## Docker Compose
 
 The root `docker-compose.yaml` includes the pinned upstream stack and the
