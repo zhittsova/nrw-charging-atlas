@@ -105,6 +105,10 @@ def synchronize_presentation(site_url: str, site_name: str, layers: list[str]) -
     if changed:
         # Each serving process caches Site independently. A management-shell
         # cache clear alone would leave the browser's old title in place.
-        subprocess.run(compose_command("restart", "django"), check=True)
+        # The pinned uWSGI configuration watches this path for reloads. Touching
+        # it clears worker caches without rerunning the container's migrations.
+        subprocess.run(compose_command(
+            "exec", "-T", "django", "touch", "/usr/src/geonode/geonode/wsgi.py",
+        ), check=True)
         wait_for_http(site_url)
     refresh_thumbnails(layers)

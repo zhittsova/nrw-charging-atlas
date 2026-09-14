@@ -46,7 +46,7 @@ def test_site_repair_preserves_custom_identity_and_is_idempotent():
 
 
 @pytest.mark.parametrize("changed", [True, False])
-def test_only_changed_site_identity_restarts_cached_serving_processes(changed):
+def test_only_changed_site_identity_reloads_cached_serving_processes(changed):
     with (
         patch.object(presentation, "ensure_site", return_value=changed),
         patch.object(presentation, "refresh_thumbnails") as thumbnails,
@@ -57,6 +57,8 @@ def test_only_changed_site_identity_restarts_cached_serving_processes(changed):
     thumbnails.assert_called_once_with(["nrw_chargers"])
     assert run.call_count == int(changed)
     assert wait.call_count == int(changed)
+    if changed:
+        assert run.call_args.args[0][-2:] == ["touch", "/usr/src/geonode/geonode/wsgi.py"]
 
 
 @pytest.mark.parametrize("invalid_image", [False, True])
