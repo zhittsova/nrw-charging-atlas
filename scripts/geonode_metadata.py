@@ -146,7 +146,7 @@ LAYER_METADATA: dict[str, LayerMetadata] = {
         ("nuts3_regions_gisco_nrw", "strassen_nrw_traffic_values"),
     ),
     "proposed_chargers": LayerMetadata(
-        "Locally proposed NRW charging stations submitted through the demonstrator. These records are user scenarios, not official infrastructure data.",
+        "Locally proposed NRW charging stations submitted through the demonstrator. The layer starts empty until you add a proposal. These records are user scenarios, not official infrastructure data.",
         ("EV charging", "local proposals", "scenario"),
         (),
         "Varied / Derived",

@@ -537,6 +537,15 @@ def main() -> None:
             "GeoNode catalog, dataset permissions, and metadata synchronized "
             f"({metadata_result['datasets']} datasets; {metadata_result['changed']} changed)"
         )
+        try:
+            from scripts.geonode_presentation import synchronize_presentation
+        except ModuleNotFoundError:
+            from geonode_presentation import synchronize_presentation
+        synchronize_presentation(
+            values.get("SITEURL", "http://localhost:8000/"),
+            values.get("NRW_SITE_NAME", "NRW Charging Atlas"),
+            [*PUBLISH_LAYERS, SCENARIO_LAYER],
+        )
 
 
 if __name__ == "__main__":
