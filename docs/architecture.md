@@ -77,3 +77,11 @@ Scenario results are a comparison aid, not a future-demand forecast or an
 engineering siting decision. See the current [demonstration and
 operation](operational_handover.md) for the supported workflow,
 limitations, recovery procedure, and deferred research.
+
+## Public static deployment
+
+The public build (`npm run build:public`) selects canonical exports immediately
+and makes no GeoServer or scenario-service requests. GitHub Actions can refresh
+those exports using an isolated PostGIS + Python batch job, verify them and deploy
+the frontend to Cloudflare Pages. The hosted site has no application server or
+database. See [public hosting](public_hosting.md) for setup and operation.

@@ -122,5 +122,7 @@ refreshes and verify a newer backup before discarding a known-good one.
 
 Project-owned code has **no public licence grant**. Source-data attribution,
 licence notes, and upstream notices remain mandatory in the catalogues and
-GeoNode metadata. Deferred scope: public hosting, multi-user scenarios,
+GeoNode metadata. Deferred scope: multi-user scenarios,
 location optimization, future-demand modelling, and measured DSO capacity.
+
+Public read-only hosting is configured separately in [public hosting](public_hosting.md).

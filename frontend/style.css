@@ -479,3 +479,7 @@ body { background:#0b1017; }
 .sources-panel .source-list span { display:inline; color:#a4b3c2; font-size:12px; line-height:1.65; }
 .sources-panel .source-note { margin-bottom:0; color:#9cabbc; font-size:11px; }
 @media(max-width:760px) { .sources-panel .source-list { grid-template-columns:1fr; } }
+
+/* Public hosting serves canonical exports without scenario services. */
+html[data-public-demo="true"] [data-live-only],
+html:not([data-public-demo="true"]) [data-public-only] { display: none !important; }

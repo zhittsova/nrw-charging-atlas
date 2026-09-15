@@ -1,0 +1,128 @@
+name: Public atlas
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - frontend/**
+      - scripts/**
+      - db/**
+      - catalog/**
+      - config/regions/**
+      - config/compose.public-etl.yml
+      - docs/data-attribution.md
+      - NOTICE.md
+      - Dockerfile
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/public-pages.yml
+  workflow_dispatch:
+    inputs:
+      refresh_data:
+        description: Rebuild the dataset from current public sources
+        type: boolean
+        default: false
+  # Opt in with repository variable ENABLE_SCHEDULED_ETL=true.
+  schedule:
+    - cron: '23 4 1 * *'
+
+permissions:
+  contents: read
+
+# Code and data use one deployment queue. A failure preserves the live site.
+concurrency:
+  group: public-atlas-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.CLOUDFLARE_ACCOUNT_ID != '' &&
+      (github.event_name != 'schedule' || vars.ENABLE_SCHEDULED_ETL == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: cloudflare-pages
+    env:
+      PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'nrw-ev-atlas' }}
+      COMPOSE_PROJECT_NAME: nrw-public-etl-${{ github.run_id }}-${{ github.run_attempt }}
+      NRW_PUBLIC_RAW_DIR: ${{ github.workspace }}/data/raw
+      NRW_PUBLIC_RUNTIME_DIR: ${{ github.workspace }}/data/runtime
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          # Avoid accumulating paid Actions caches/artifacts for this workflow.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the static Pages project before running ETL
+        id: pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.pages_preflight
+      - name: Test and build the public frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build:public
+      - name: Select data refresh or last published export
+        id: data
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_REFRESH: ${{ inputs.refresh_data }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
+        shell: bash
+        run: |
+          refresh=false
+          if [[ "$EVENT_NAME" == schedule || "$FORCE_REFRESH" == true ]]; then
+            refresh=true
+          elif [[ "$EVENT_NAME" == push ]]; then
+            if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              refresh=true
+            elif git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" | rg -q '^(db/|scripts/|catalog/|config/regions/|config/compose.public-etl.yml$|Dockerfile$|pyproject.toml$|uv.lock$)'; then
+              refresh=true
+            fi
+          fi
+          if [[ "$refresh" == false ]]; then
+            if ! python -m scripts.public_site fetch --origin "$PAGES_ORIGIN"; then
+              echo 'No compatible published export; running ETL (also expected on first deployment).'
+              refresh=true
+            fi
+          fi
+          echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
+      - name: Refresh, verify and export with temporary PostGIS
+        if: steps.data.outputs.refresh == 'true'
+        run: |
+          mkdir -p data/raw data/runtime
+          docker compose -f config/compose.public-etl.yml run --build --rm etl
+      - name: Package and verify static-only output
+        run: python -m scripts.public_site prepare
+      - name: Browser smoke tests
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:public
+      - name: Reject a superseded source revision
+        run: |
+          current=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$current" != "$GITHUB_SHA" ]; then
+            echo 'A newer main revision exists; this run must not replace it. Run Public atlas on main again if needed.' >&2
+            exit 1
+          fi
+      - name: Deploy static assets to Cloudflare Pages
+        working-directory: frontend
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA"
+      - name: Remove only this run's temporary ETL stack
+        if: always()
+        run: docker compose -f config/compose.public-etl.yml down --volumes --remove-orphans

@@ -77,7 +77,7 @@ describe("dashboard information architecture", () => {
   });
 
   it("provides a renewable-energy overlay with a local fallback", () => {
-    expect(html).toContain('renewableAssetsLayer: "nrw:nrw_renewable_potential"');
+    expect(mainSource).toContain('renewableAssetsLayer: "nrw:nrw_renewable_potential"');
     expect(mainSource).toContain("data/nrw_renewable_assets_sample.geojson");
     expect(mainSource).toContain('"Solar farms and wind energy": renewableAssetLayer');
     expect(mainSource).toContain('}).addTo(map);');

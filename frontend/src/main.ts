@@ -49,6 +49,7 @@ import {
 } from "./analyticsPresentation";
 
 (window as Window & { __energyAppBooted?: boolean }).__energyAppBooted = true;
+const PUBLIC_DEMO = import.meta.env.VITE_PUBLIC_DEMO === "true";
 
 type ScoreMetric =
   | "investmentPriorityScore"
@@ -144,7 +145,7 @@ const NRW_BOUNDS: L.LatLngBoundsExpression = [
 ];
 
 const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
-  geonodeBaseUrl: "http://localhost:8000",
+  geonodeBaseUrl: PUBLIC_DEMO ? "" : "http://localhost:8000",
   geoserverBaseUrl: "",
   geonodeStationsLayer: "nrw:nrw_chargers",
   geonodeRegionsLayer: "nrw:nrw_ev_baseline_metrics",
@@ -254,7 +255,7 @@ map.getPane("proposedStations")!.style.zIndex = "490";
 const proposedStationRenderer = L.svg({ pane: "proposedStations" });
 
 const vectorFallback = L.layerGroup();
-const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
@@ -485,7 +486,7 @@ L.control
       "Vector-only fallback": vectorFallback
     },
     {
-      "Proposed charging stations": proposedStationLayer,
+      ...(!PUBLIC_DEMO ? { "Proposed charging stations": proposedStationLayer } : {}),
       "Official charging stations": stationLayer,
       "Solar farms and wind energy": renewableAssetLayer,
       "Autobahns": autobahnLayer,
@@ -836,7 +837,7 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
       };
 
   const comparison = p.baseline_ev_readiness_score === undefined ? "" : `
-    <div class="comparison-grid" aria-label="Baseline and scenario comparison">
+    <div class="comparison-grid" data-live-only aria-label="Baseline and scenario comparison">
       <div><span>Baseline readiness</span><strong>${formatScore(numericValue(p, ["baseline_ev_readiness_score"]), false)}</strong></div>
       <div><span>Scenario readiness</span><strong>${formatScore(numericValue(p, ["scenario_ev_readiness_score"]), false)}</strong></div>
       <div><span>Change</span><strong>${formatScore(numericValue(p, ["ev_readiness_score_delta"]), true)}</strong></div>
@@ -966,7 +967,7 @@ function renderRegionDetail(feature: Feature<RegionProperties> | null): void {
     ${investment === null ? `<p class="detail-note">Unavailable reason: ${escapeHtml(unavailableReason(p, "investmentPriorityScore"))}</p>` : ""}
     <p class="recommendation">${escapeHtml(recommendation)}</p>
     <details class="site-next-step"><summary>What to check next</summary>
-      <p><strong>Charging:</strong> inspect nearby stations and roads, confirm local demand and land access, then request grid connection information. Add a proposal to compare charging supply before and after.</p>
+      <p><strong>Charging:</strong> inspect nearby stations and roads, confirm local demand and land access, then request grid connection information.<span data-live-only> Add a proposal to compare charging supply before and after.</span></p>
       <p><strong>New wind or solar:</strong> this map shows existing installations. Site screening also needs wind or solar resource, land constraints, permits and confirmed connection capacity.</p>
     </details>
   `;
@@ -1260,6 +1261,7 @@ function renderProposedStations(): void {
 }
 
 async function refreshScenarioData(successMessage?: string): Promise<void> {
+  if (PUBLIC_DEMO) return;
   const [proposed, metrics] = await Promise.all([
     scenarioClient.loadProposedChargers(),
     scenarioClient.loadScenarioMetrics()
@@ -1348,11 +1350,18 @@ map.on("click", (event) => {
 });
 
 async function boot(): Promise<void> {
+  if (PUBLIC_DEMO) {
+    proposedStationLayer.removeFrom(map);
+    setText("project-exploration", "Compare charging supply, population, transport and energy across 53 districts. Select a district to inspect its scores and source data.");
+    setText("project-introduction", "Identify gaps in public charging and compare the infrastructure context behind each district’s ranking.");
+    setText("map-instructions", "Select a district to inspect the evidence. District scores support shortlisting; they do not identify approved sites.");
+    setText("public-data-note", "Explore the published network. Scenario editing is available in the local application.");
+  }
   renderRegionDetail(null);
   const manifestPath = "data/manifest.json";
   const [regionsResult, stationsResult] = await Promise.all([
-    readLayer(geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer), "data/nrw_regions_sample.geojson", CANONICAL_DISTRICT_FIELDS, { manifestPath }),
-    readLayer(geoserverWfsUrl(runtimeConfig.geonodeStationsLayer), "data/nrw_charging_stations_sample.geojson", CANONICAL_STATION_FIELDS, { manifestPath })
+    readLayer(geoserverWfsUrl(runtimeConfig.geonodeRegionsLayer), "data/nrw_regions_sample.geojson", CANONICAL_DISTRICT_FIELDS, { manifestPath, preferSnapshot: PUBLIC_DEMO }),
+    readLayer(geoserverWfsUrl(runtimeConfig.geonodeStationsLayer), "data/nrw_charging_stations_sample.geojson", CANONICAL_STATION_FIELDS, { manifestPath, preferSnapshot: PUBLIC_DEMO })
   ]);
   Object.assign(layerStates, {
     districts: regionsResult,
@@ -1369,7 +1378,7 @@ async function boot(): Promise<void> {
   renderProposedStations();
   renderReadStates();
   map.fitBounds(regionLayer.getBounds().isValid() ? regionLayer.getBounds() : NRW_BOUNDS, { padding: [24, 24] });
-  try {
+  if (!PUBLIC_DEMO) try {
     await refreshScenarioData();
   } catch (error) {
     console.warn("Scenario layers are not available", error);
@@ -1388,11 +1397,15 @@ async function loadScoreModel(manifestPath: string): Promise<void> {
         ? (manifest as { score_model?: unknown }).score_model
         : undefined;
       if (Array.isArray(candidate)) scoreModel = publishedScoreModelTerms(manifest) as ScoreModelTerm[];
+      if (PUBLIC_DEMO && manifest && typeof manifest === "object" && "generated_at" in manifest) {
+        const date = new Date(String(manifest.generated_at));
+        if (Number.isFinite(date.getTime())) setText("public-data-note", `Data export: ${date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}. Source dates vary; inspect district details. Scenario editing is available in the local application.`);
+      }
     }
   } catch {
     // A live district layer can still use the published read-only score model.
   }
-  if (!scoreModel.length) {
+  if (!scoreModel.length && !PUBLIC_DEMO) {
     try {
       const response = await fetch(geoserverWfsUrl(runtimeConfig.scoreModelLayer), { cache: "no-store", credentials: "same-origin" });
       if (response.ok) {

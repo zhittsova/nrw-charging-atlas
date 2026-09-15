@@ -26,6 +26,11 @@ forecast demand or determine whether a particular site can be built.
 
 ## Run locally
 
+For a public read-only site with automated data refreshes, see
+[GitHub Actions + Cloudflare Pages](docs/public_hosting.md). The deployment
+configuration targets `nrw-ev-atlas.zhittsova.com` and uses only static Pages
+hosting; scenario editing remains available in the local stack below.
+
 Install Git, Python 3.11 or newer, [uv](https://docs.astral.sh/uv/getting-started/installation/)
 and Docker with Compose 2.24.4 or newer. Allocate at least four CPUs and 4 GiB
 RAM to Docker, with additional memory available for the host and browser.

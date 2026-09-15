@@ -58,6 +58,23 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      - name: Public static build
+        run: npm run build:public
+
+  infrastructure:
+    name: Validate Cloudflare Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.16.2'
+      - run: terraform fmt -check
+        working-directory: infra/cloudflare
+      - run: terraform init -backend=false
+        working-directory: infra/cloudflare
+      - run: terraform validate
+        working-directory: infra/cloudflare
 
   postgis:
     name: Disposable PostGIS integration
