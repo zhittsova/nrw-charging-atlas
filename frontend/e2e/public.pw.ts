@@ -22,6 +22,10 @@ test("public explorer works without a backend, writes, or an external basemap", 
   await firstDistrict.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#region-detail")).toContainText(districtName);
+  await expect(page.locator("#region-detail .detail-evidence")).toHaveAttribute("open", "");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerWidth)
+  );
   await expect(page.locator("#region-detail .comparison-grid")).toBeHidden();
   await expect(page.locator("#map-catalog-link")).toHaveAttribute("href", "#sources");
   await expect(page.locator("#map-availability-note")).toContainText("fallback");
