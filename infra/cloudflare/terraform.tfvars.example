@@ -1,0 +1,5 @@
+account_id = "REPLACE_WITH_YOUR_32_CHARACTER_ACCOUNT_ID"
+# zone_id = "ONLY_IF_YOUR_EXISTING_DNS_ZONE_IS_ON_CLOUDFLARE"
+# project_name = "nrw-ev-atlas"
+# domain = "nrw-ev-atlas.zhittsova.com"
+# manage_deploy_token = true # Optional; read docs/public_hosting.md before enabling.

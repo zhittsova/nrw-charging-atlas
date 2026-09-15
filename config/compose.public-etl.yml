@@ -1,0 +1,34 @@
+# Disposable batch processing only. No public ports and no persistent server.
+# Use a unique project name; down -v applies ONLY to this dedicated stack.
+services:
+  db:
+    image: postgis/postgis:15-3.5
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: nrw_public_export
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: disposable-public-etl
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d nrw_public_export"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - public-etl-db:/var/lib/postgresql/data
+
+  etl:
+    build:
+      context: ..
+      target: etl
+    environment:
+      DATABASE_URL: postgresql://postgres:disposable-public-etl@db:5432/nrw_public_export
+    depends_on:
+      db:
+        condition: service_healthy
+    command: [python, scripts/public_etl.py]
+    volumes:
+      - ${NRW_PUBLIC_RAW_DIR:-../data/raw}:/app/data/raw
+      - ${NRW_PUBLIC_RUNTIME_DIR:-../data/runtime}:/app/data/runtime
+
+volumes:
+  public-etl-db:

@@ -64,7 +64,7 @@ describe("canonical layer reads", () => {
     });
 
     expect(result.state).toBe("snapshot");
-    expect(result.detail).toContain("snapshot selected for optional layer");
+    expect(result.detail).toContain("snapshot selected");
     expect(fetcher).not.toHaveBeenCalledWith("/expensive-optional-wfs", expect.anything());
   });
 

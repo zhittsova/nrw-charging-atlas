@@ -37,3 +37,14 @@ data/runtime/
 coverage/
 logs/
 *.log
+
+# Local infrastructure state and browser test output.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+test-results/
+playwright-report/
+.wrangler/

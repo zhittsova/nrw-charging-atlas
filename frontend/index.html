@@ -4,23 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>NRW Charging Atlas</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <meta name="description" content="Explore EV charging coverage, district rankings and infrastructure across North Rhine-Westphalia.">
     <link rel="stylesheet" href="./style.css">
-    <script>
-      window.__energyAppConfig = {
-        geonodeBaseUrl: "http://localhost:8000",
-        geoserverBaseUrl: "",
-        geonodeStationsLayer: "nrw:nrw_chargers",
-        geonodeRegionsLayer: "nrw:nrw_ev_baseline_metrics",
-        scenarioMetricsLayer: "nrw:nrw_ev_scenario_metrics",
-        proposedChargersLayer: "nrw:proposed_chargers",
-        autobahnsLayer: "nrw:nrw_autobahns",
-        regionalRoadsLayer: "nrw:nrw_regional_roads",
-        renewableAssetsLayer: "nrw:nrw_renewable_potential",
-        scenarioFeaturePrefix: "nrw",
-        scenarioNamespaceUri: "https://nrw.local/scenario"
-      };
-    </script>
   </head>
   <body>
     <div class="app-shell">
@@ -36,6 +21,7 @@
         </header>
 
         <p id="data-quality-note" class="data-quality-note" role="status">Checking the available district data…</p>
+        <p id="public-data-note" class="data-quality-note" data-public-only></p>
         <section class="command-grid">
           <section class="map-shell">
             <div class="map-toolbar" aria-label="Map tools">
@@ -43,7 +29,7 @@
                 <label><input type="radio" name="map-style" value="standard"><span>Standard</span></label>
                 <label><input type="radio" name="map-style" value="illuminated" checked><span>Illuminated</span></label>
               </div>
-              <button id="map-add-station" type="button" title="Add a proposed charging station">Add station</button>
+              <button data-live-only id="map-add-station" type="button" title="Add a proposed charging station">Add station</button>
             </div>
             <div id="map" class="map-illuminated" aria-label="Map of NRW charging coverage and energy context"></div>
             <div class="map-key" aria-label="Map legend">
@@ -54,7 +40,7 @@
               </details>
             </div>
             <div class="map-note">
-              <span id="map-availability-note">Loading map layers…</span> Select a district to inspect the evidence, then test a proposed station. District scores support shortlisting; they do not identify approved sites. <a href="#methods">Methods &amp; limitations</a> · <a id="map-catalog-link" href="http://localhost:8000/datasets">Open data catalogue</a>.
+              <span id="map-availability-note">Loading map layers…</span> <span id="map-instructions">Select a district to inspect the evidence, then test a proposed station. District scores support shortlisting; they do not identify approved sites.</span> <a href="#methods">Methods &amp; limitations</a> · <a id="map-catalog-link" href="http://localhost:8000/datasets">Open data catalogue</a>.
             </div>
           </section>
 
@@ -81,7 +67,7 @@
               <div id="region-detail" class="region-detail"></div>
             </section>
 
-            <section class="panel scenario-list-panel" aria-label="Proposed charging stations">
+            <section data-live-only class="panel scenario-list-panel" aria-label="Proposed charging stations">
               <div class="panel-heading">
                 <h2>Proposed Stations</h2>
                 <span id="scenario-station-count">0 stations</span>
@@ -99,7 +85,7 @@
                 <option value="chargerDeficitScore">Charger Deficit</option>
                 <option value="infrastructureOpportunityScore">Infrastructure Opportunity</option>
               </select>
-              <div class="scenario-controls">
+              <div data-live-only class="scenario-controls">
                 <span class="field-label">Comparison view</span>
                 <div class="scenario-mode-switch" role="group" aria-label="Scenario comparison view">
                   <button type="button" class="active" data-scenario-mode="baseline">Current network</button>
@@ -177,8 +163,8 @@
         <section class="project-intro" aria-labelledby="project-purpose">
           <h2 id="project-purpose">Where does NRW need more EV charging?</h2>
           <p class="intro-lead">From <strong>53 districts</strong> to a shortlist for your next charging project.</p>
-          <p>Identify gaps in public charging, compare infrastructure context and test how a proposed station changes the district’s charging supply.</p>
-          <p>We compare charging supply with population and accessibility, then consider traffic, mapped electricity infrastructure and renewable energy. Select a planning question, explore the map and ranking, and test a proposed station.</p>
+          <p id="project-introduction">Identify gaps in public charging, compare infrastructure context and test how a proposed station changes the district’s charging supply.</p>
+          <p id="project-exploration">We compare charging supply with population and accessibility, then consider traffic, mapped electricity infrastructure and renewable energy. Select a planning question, explore the map and ranking, and test a proposed station.</p>
           <div class="intro-facts">
             <p><strong class="fact-label">What we compare</strong>EV Readiness combines density (40%), accessibility (30%) and population-adjusted coverage (30%). Investment Priority combines charging deficit (60%) with infrastructure opportunity (40%).</p>
             <p><strong class="fact-label">The evidence behind it</strong>Bundesnetzagentur charging stations; Eurostat population and boundaries; Straßen.NRW traffic; Energieatlas NRW energy data; OpenStreetMap grid and road data. <a href="#methods">See indicator formulas</a>.</p>
@@ -293,7 +279,7 @@
       </main>
     </div>
 
-    <div id="scenario-modal" class="scenario-modal" hidden>
+    <div data-live-only id="scenario-modal" class="scenario-modal" hidden>
       <div class="scenario-dialog" role="dialog" aria-modal="true" aria-labelledby="scenario-dialog-title" aria-describedby="scenario-dialog-description">
         <div class="panel-heading">
           <h2 id="scenario-dialog-title">Add proposed charging station</h2>
@@ -336,7 +322,6 @@
       </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

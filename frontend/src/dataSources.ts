@@ -202,7 +202,7 @@ export async function readLayer(
         data: validateGeoJson(snapshot, requiredFields, snapshotPath),
         detail: liveReason
           ? `${state === "stale" ? "Stale" : "Canonical"} snapshot after ${liveReason.kind}: ${liveReason.message}`
-          : `${state === "stale" ? "Stale" : "Canonical"} snapshot selected for optional layer`
+          : `${state === "stale" ? "Stale" : "Canonical"} snapshot selected`
       };
     } catch (snapshotError) {
       const snapshotReason = snapshotError instanceof LayerReadError
