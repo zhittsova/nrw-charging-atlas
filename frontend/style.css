@@ -320,7 +320,7 @@ p,li,small { text-wrap:pretty; }
 .detail-metric { padding:12px; background:#102638; border:1px solid #2b4357; border-radius:8px; }
 .detail-metric span { font-size:12px; line-height:1.5; margin-bottom:7px; }
 .detail-metric strong { font-size:21px; color:#f2f7fc; font-variant-numeric:tabular-nums; }
-.detail-evidence { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+.detail-evidence { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; overflow-wrap:anywhere; }
 .detail-evidence summary { cursor:pointer; color:#d6edff; font-weight:700; }
 .detail-evidence h4 { margin:18px 0 8px; font-size:14px; color:#d6edff; }
 .detail-note { color:var(--muted); font-size:13px; line-height:1.6; }
