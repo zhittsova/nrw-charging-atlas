@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import sys
 from pathlib import Path
 
@@ -89,3 +90,23 @@ def test_old_formula_requires_a_refresh(tmp_path: Path) -> None:
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="formula version"):
         public_site.validate_snapshot(source)
+
+
+def test_download_identifies_the_atlas_and_validates_the_export(tmp_path: Path, monkeypatch) -> None:
+    source = runtime(tmp_path)
+    requests = []
+
+    def fetch(request, timeout):
+        assert request.get_header("User-agent").startswith("nrw-charging-atlas/")
+        assert request.get_header("Accept") == "application/json"
+        assert timeout == 90
+        requests.append(request.full_url)
+        return io.BytesIO((source / request.full_url.rsplit("/", 1)[1]).read_bytes())
+
+    monkeypatch.setattr(public_site, "urlopen", fetch)
+    target = tmp_path / "download"
+    public_site.fetch_snapshot("https://nrw-ev-atlas.pages.dev", target)
+    assert set(requests) == {
+        f"https://nrw-ev-atlas.pages.dev/data/{name}" for name in public_site.FILES
+    }
+    public_site.validate_snapshot(target)

@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from scripts.export_nrw_runtime import ARTIFACTS, validate_collection, validate_ingested_provenance
 
@@ -125,7 +125,15 @@ def fetch_snapshot(base_url: str, target: Path) -> None:
     with tempfile.TemporaryDirectory(dir=target.parent) as directory:
         staged = Path(directory)
         for filename in FILES:
-            with urlopen(f"{base_url.rstrip('/')}/data/{filename}", timeout=90) as response:
+            # Cloudflare can reject urllib's generic Python User-Agent (1010).
+            request = Request(
+                f"{base_url.rstrip('/')}/data/{filename}",
+                headers={
+                    "User-Agent": "nrw-charging-atlas/1.0 (+https://github.com/zhittsova/nrw-charging-atlas)",
+                    "Accept": "application/json",
+                },
+            )
+            with urlopen(request, timeout=90) as response:
                 content = response.read(MAX_FILE_BYTES + 1)
             if len(content) > MAX_FILE_BYTES:
                 raise ValueError(f"Download exceeds the Pages file limit: {filename}")
